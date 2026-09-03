@@ -11,9 +11,17 @@ Paste it into TradingView → Pine Editor → *Add to chart*. Clear the editor's
 | **Sessions** | Asia / London / NY AM / NY PM, in a configurable timezone. Each session can show a running high–low box, horizontal high/low lines, and text labels — independently. |
 | **Previous D/W/M** | Previous day, week and month high and low. Drawn with `plot()`, so they cannot be evicted by TradingView's drawing cap. |
 | **PD arrays** | Premium / discount / equilibrium and OTE (0.705 / 0.295, plus 0.618 / 0.382) over a selectable range: previous day, week, month, or the current day. |
-| **Status table** | Active session, PDH/PDL, PWH/PWL, premium-or-discount bias, bar count. |
+| **SMT divergence** | Swings on this chart are compared with up to two correlated symbols **at the same bars**. When one market makes a higher high and the other does not — or one makes a lower low and the other does not — the disagreement is drawn as a connector between the two swings and labelled. |
+| **Status table** | Active session, which symbols SMT is comparing against, cumulative SMT signals, PDH/PDL, PWH/PWL, premium-or-discount bias. |
 
-Still to come: CISD, SMT divergence.
+Still to come: CISD.
+
+## SMT options
+
+- **Correlated symbol 1 / 2** — defaults are `CME_MINI:ES1!` and `CBOT_MINI:YM1!`. **Set symbol 1 to something other than your chart symbol** — comparing a market with itself can never diverge, so you would get no signals. The status table shows what it is comparing against, so this is easy to spot.
+- **Swing pivot length** — a pivot only confirms this many bars after it prints; that lag is inherent to swing detection, not a flaw. Lower it for faster, noisier signals.
+- **Max bars between swings** — ignores a divergence when the two swings are further apart than this (default 100, `0` = no limit). Stops distant, unrelated swings being paired up.
+- **Connector** — style, width, label text and size. `Match chart text colour` draws in `chart.fg_color` so it reads on light and dark themes; turn it off to set explicit colours for highs and lows.
 
 ## Session options
 

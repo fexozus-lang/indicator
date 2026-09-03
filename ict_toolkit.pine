@@ -1,6 +1,6 @@
 //@version=6
 // ICT Toolkit — incremental build. Verified working so far:
-//   sessions, previous D/W/M, PD arrays.               Still to add: CISD, SMT.
+//   sessions, previous D/W/M, PD arrays, SMT divergence.   Still to add: CISD.
 // Levels use plot() rather than line objects, so they cannot be evicted by
 // TradingView's 500-drawing cap and cannot be hidden off-screen.
 indicator("ICT Toolkit (build)", shorttitle = "ICT Build", overlay = true,
@@ -10,6 +10,7 @@ indicator("ICT Toolkit (build)", shorttitle = "ICT Build", overlay = true,
 const string G_SES = "Sessions"
 const string G_HTF = "Previous D / W / M"
 const string G_PD  = "PD Array"
+const string G_SMT = "SMT Divergence"
 const string G_GEN = "Dashboard"
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
@@ -64,6 +65,23 @@ pdaEqC   = input.color(#f23645, "Equilibrium 0.5",    group = G_PD)
 pdaOteC  = input.color(#089981, "OTE 0.705 / 0.295",  group = G_PD)
 pdaSubOn = input.bool(true, "Show 0.618 / 0.382",     group = G_PD, inline = "ps")
 pdaSubC  = input.color(#b2b5be, "",                   group = G_PD, inline = "ps")
+
+// ── SMT divergence ───────────────────────────────────────────────────────────
+smtShow    = input.bool(true, "Show SMT divergence",   group = G_SMT)
+smtPiv     = input.int(3,  "Swing pivot length",       group = G_SMT, minval = 1, tooltip = "A pivot is only confirmed this many bars after it prints -- that lag is inherent to swing detection. Smaller = faster and noisier.")
+smtMaxGap  = input.int(100, "Max bars between swings", group = G_SMT, minval = 0, tooltip = "Ignore a divergence when the two swings are further apart than this. 0 = no limit.")
+smt1On     = input.bool(true,  "Correlated symbol 1",  group = G_SMT, inline = "s1")
+smt1Sym    = input.symbol("CME_MINI:ES1!", "",         group = G_SMT, inline = "s1")
+smt2On     = input.bool(false, "Correlated symbol 2",  group = G_SMT, inline = "s2")
+smt2Sym    = input.symbol("CBOT_MINI:YM1!", "",        group = G_SMT, inline = "s2")
+smtKeep    = input.int(20, "Max SMT marks kept",       group = G_SMT, minval = 1, maxval = 100)
+smtStyle   = input.string("Solid", "Connector", options = ["Solid", "Dashed", "Dotted"], group = G_SMT, inline = "sl")
+smtWidth   = input.int(1,  "W",                        group = G_SMT, inline = "sl", minval = 1, maxval = 4)
+smtTag     = input.string("SMT", "Label text",         group = G_SMT, inline = "st")
+smtLblSize = input.string("Tiny", "", options = ["Tiny", "Small", "Normal"], group = G_SMT, inline = "st")
+smtAutoCol = input.bool(true, "Match chart text colour", group = G_SMT, tooltip = "Draws in the chart's foreground colour so it reads on light and dark themes.")
+smtBearCol = input.color(#f23645, "At highs",          group = G_SMT, inline = "sc")
+smtBullCol = input.color(#089981, "At lows",           group = G_SMT, inline = "sc")
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
 dashOn     = input.bool(true, "Show status table", group = G_GEN)
@@ -232,6 +250,80 @@ plot(pdaOn                ? fib(0.295) : na, "OTE 0.295",    color = pdaOteC, st
 plot(pdaOn                ? fib(0.000) : na, "Discount 0.0", color = pdaBndC, style = plot.style_linebr)
 
 // ═════════════════════════════════════════════════════════════════════════════
+// SMT divergence
+// ═════════════════════════════════════════════════════════════════════════════
+// A swing on this chart is compared with the correlated symbol AT THE SAME
+// BARS. If one makes a higher high and the other does not -- or one makes a
+// lower low and the other does not -- the two markets disagree, and that
+// disagreement is the signal.
+smtAtr = ta.atr(200)
+
+sym1 = smt1On ? smt1Sym : syminfo.tickerid
+sym2 = smt2On ? smt2Sym : syminfo.tickerid
+[c1h, c1l] = request.security(sym1, timeframe.period, [high, low],
+     barmerge.gaps_off, barmerge.lookahead_off, ignore_invalid_symbol = true)
+[c2h, c2l] = request.security(sym2, timeframe.period, [high, low],
+     barmerge.gaps_off, barmerge.lookahead_off, ignore_invalid_symbol = true)
+
+phv = ta.pivothigh(high, smtPiv, smtPiv)
+plv = ta.pivotlow(low,  smtPiv, smtPiv)
+
+var array<line>  smtLines = array.new<line>()
+var array<label> smtLabs  = array.new<label>()
+
+smtPush(line ln, label lb) =>
+    array.push(smtLines, ln)
+    array.push(smtLabs, lb)
+    if array.size(smtLines) > smtKeep
+        line.delete(array.shift(smtLines))
+        label.delete(array.shift(smtLabs))
+
+// Each call site of this function keeps its own copy of prevPiv/prevCorr/prevBar.
+smtScan(float pivVal, float corrVal, bool isHigh, bool enabled, string tag, color col) =>
+    var float prevPiv  = na
+    var float prevCorr = na
+    var int   prevBar  = na
+    bool sig = false
+    if not na(pivVal) and not na(corrVal)
+        int  curBar = bar_index - smtPiv
+        bool near   = smtMaxGap <= 0 or (curBar - prevBar) <= smtMaxGap
+        if enabled and near and not na(prevPiv) and not na(prevCorr)
+            bool chartHigher = pivVal  > prevPiv
+            bool corrHigher  = corrVal > prevCorr
+            if chartHigher != corrHigher
+                sig := true
+                float pad = nz(smtAtr, 0) * 0.5
+                smtPush(
+                     line.new(prevBar, prevPiv, curBar, pivVal, color = col,
+                         width = smtWidth, style = lineStyle(smtStyle)),
+                     label.new(math.round(math.avg(prevBar, curBar)),
+                         isHigh ? math.max(prevPiv, pivVal) + pad : math.min(prevPiv, pivVal) - pad,
+                         tag, style = label.style_none, textcolor = col,
+                         size = lblSize(smtLblSize)))
+        prevPiv  := pivVal
+        prevCorr := corrVal
+        prevBar  := curBar
+    sig
+
+smtHiCol = smtAutoCol ? chart.fg_color : smtBearCol
+smtLoCol = smtAutoCol ? chart.fg_color : smtBullCol
+
+smtB1 = smtScan(phv, c1h[smtPiv], true,  smtShow and smt1On, smtTag,       smtHiCol)
+smtL1 = smtScan(plv, c1l[smtPiv], false, smtShow and smt1On, smtTag,       smtLoCol)
+smtB2 = smtScan(phv, c2h[smtPiv], true,  smtShow and smt2On, smtTag + "2", smtHiCol)
+smtL2 = smtScan(plv, c2l[smtPiv], false, smtShow and smt2On, smtTag + "2", smtLoCol)
+
+smtBearSig = smtB1 or smtB2
+smtBullSig = smtL1 or smtL2
+
+var int smtCount = 0
+if smtBearSig or smtBullSig
+    smtCount += 1
+
+alertcondition(smtBearSig, "Bearish SMT", "Bearish SMT divergence on {{ticker}} {{interval}}")
+alertcondition(smtBullSig, "Bullish SMT", "Bullish SMT divergence on {{ticker}} {{interval}}")
+
+// ═════════════════════════════════════════════════════════════════════════════
 // Status table
 // ═════════════════════════════════════════════════════════════════════════════
 tblPos = switch dashPos
@@ -240,7 +332,7 @@ tblPos = switch dashPos
     "Top left"    => position.top_left
     => position.bottom_right
 
-var table dash = table.new(tblPos, 2, 6, border_width = 1)
+var table dash = table.new(tblPos, 2, 7, border_width = 1)
 
 dashRow(int r, string k, string v) =>
     table.cell(dash, 0, r, k, text_color = dashTxtCol, text_size = size.tiny,
@@ -250,12 +342,19 @@ dashRow(int r, string k, string v) =>
 
 px(float v) => na(v) ? "—" : str.tostring(v, format.mintick)
 
+// "CME_MINI:ES1!" -> "ES1!"
+shortSym(string sy) =>
+    parts = str.split(sy, ":")
+    array.size(parts) > 1 ? array.get(parts, 1) : sy
+
 if dashOn and barstate.islast
     float eq = fib(0.5)
-    dashRow(0, "ICT LEVELS", timeframe.period)
-    dashRow(1, "Bars",       str.tostring(bar_index + 1))
-    dashRow(2, "Session",    activeSes)
-    dashRow(3, "PDH / PDL",  px(pdh) + " / " + px(pdl))
-    dashRow(4, "PWH / PWL",  px(pwh) + " / " + px(pwl))
-    dashRow(5, "PD bias",    na(eq) ? "—" : close > eq ? "Premium" : close < eq ? "Discount" : "EQ")
+    dashRow(0, "ICT TOOLKIT",  timeframe.period)
+    dashRow(1, "Session",      activeSes)
+    dashRow(2, "SMT vs",       not smtShow ? "off" :
+         shortSym(sym1) + (smt2On ? " / " + shortSym(sym2) : ""))
+    dashRow(3, "SMT signals",  str.tostring(smtCount))
+    dashRow(4, "PDH / PDL",    px(pdh) + " / " + px(pdl))
+    dashRow(5, "PWH / PWL",    px(pwh) + " / " + px(pwl))
+    dashRow(6, "PD bias",      na(eq) ? "—" : close > eq ? "Premium" : close < eq ? "Discount" : "EQ")
 
