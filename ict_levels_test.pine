@@ -1,22 +1,50 @@
 //@version=6
-// ICT Levels — diagnostic build.
-// Sessions + previous D/W/M + PD arrays only. No FVG, no CISD, no SMT.
+// ICT Toolkit — incremental build. Verified working so far:
+//   sessions, previous D/W/M, PD arrays, FVG, IFVG.   Still to add: CISD, SMT.
 // Levels use plot() rather than line objects, so they cannot be evicted by
 // TradingView's 500-drawing cap and cannot be hidden off-screen.
-indicator("ICT Levels (test)", shorttitle = "ICT Levels", overlay = true,
-     max_boxes_count = 500, max_lines_count = 500, max_bars_back = 1000)
+indicator("ICT Toolkit (build)", shorttitle = "ICT Build", overlay = true,
+     max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500,
+     max_bars_back = 1000)
 
+const string G_FVG = "Fair Value Gaps / IFVG"
 const string G_SES = "Sessions"
 const string G_HTF = "Previous D / W / M"
 const string G_PD  = "PD Array"
 const string G_GEN = "Dashboard"
 
+// ── FVG / IFVG ───────────────────────────────────────────────────────────────
+fvgShow     = input.bool(true,  "Show FVG",                        group = G_FVG)
+fvgDisp     = input.bool(true,  "Require displacement candle",     group = G_FVG, tooltip = "The middle candle must close in the direction of the gap.")
+fvgMinAtr   = input.float(0.0,  "Min gap size (x ATR200)",         group = G_FVG, minval = 0, step = 0.05)
+fvgMax      = input.int(20,     "Max live gaps kept",              group = G_FVG, minval = 1, maxval = 100)
+fvgBoxSt    = input.string("Solid", "Zone border", options = ["Solid", "Dashed", "Dotted"], group = G_FVG, inline = "fb")
+fvgBoxWd    = input.int(1,      "W",                               group = G_FVG, inline = "fb", minval = 0, maxval = 4)
+fvgCEOn     = input.bool(true,  "Show consequent encroachment (CE)", group = G_FVG, inline = "fce")
+fvgCESt     = input.string("Dotted", "", options = ["Solid", "Dashed", "Dotted"], group = G_FVG, inline = "fce")
+ifvgOn      = input.bool(true,  "Invert mitigated FVG into IFVG",  group = G_FVG)
+fvgLblMode  = input.string("IFVG only", "Zone labels", options = ["None", "IFVG only", "All"], group = G_FVG)
+fvgLblCol   = input.color(#5d606b, "Zone label text",              group = G_FVG)
+fvgBullCol  = input.color(color.new(#089981, 75), "Bullish FVG",   group = G_FVG, inline = "fc")
+fvgBearCol  = input.color(color.new(#f23645, 75), "Bearish FVG",   group = G_FVG, inline = "fc")
+ifvgBullCol = input.color(color.new(#26c6da, 72), "Bullish IFVG",  group = G_FVG, inline = "ic")
+ifvgBearCol = input.color(color.new(#ff7043, 72), "Bearish IFVG",  group = G_FVG, inline = "ic")
+
 // ── Sessions ─────────────────────────────────────────────────────────────────
 sesShow   = input.bool(true, "Show sessions",           group = G_SES)
 sesTz     = input.string("America/New_York", "Timezone", group = G_SES)
 sesKeep   = input.int(10, "Sessions kept per type",     group = G_SES, minval = 1, maxval = 50)
-sesFillTr = input.int(85, "Fill transparency",          group = G_SES, minval = 0, maxval = 100)
-sesLines  = input.bool(true, "Extend session high/low", group = G_SES)
+
+sesBoxOn  = input.bool(true, "Session boxes",           group = G_SES, inline = "bx")
+sesFillTr = input.int(85,    "Fill transp",             group = G_SES, inline = "bx", minval = 0, maxval = 100)
+
+sesLineOn = input.bool(true, "Session high/low lines",  group = G_SES)
+sesLineSt = input.string("Dotted", "H/L line", options = ["Solid", "Dashed", "Dotted"], group = G_SES, inline = "hl")
+sesLineWd = input.int(1,     "W",                       group = G_SES, inline = "hl", minval = 1, maxval = 4)
+sesExt    = input.string("Until next session", "Extend",
+     options = ["While session is open", "Until next session", "To right edge"], group = G_SES)
+sesLbl    = input.bool(true, "Label session H/L",       group = G_SES, inline = "lb")
+sesLblCol = input.color(#b2b5be, "",                    group = G_SES, inline = "lb")
 
 s1On = input.bool(true, "Asia",   group = G_SES, inline = "a")
 s1T  = input.session("2000-0000", "", group = G_SES, inline = "a")
@@ -59,6 +87,105 @@ dashPos    = input.string("Bottom right", "Position",
 dashTxtCol = input.color(#e0e3eb, "Text",       group = G_GEN, inline = "d")
 dashBgCol  = input.color(#1e222d, "Background", group = G_GEN, inline = "d")
 
+lineStyle(string name) =>
+    switch name
+        "Dashed" => line.style_dashed
+        "Dotted" => line.style_dotted
+        => line.style_solid
+
+// ═════════════════════════════════════════════════════════════════════════════
+// FVG + IFVG
+// ═════════════════════════════════════════════════════════════════════════════
+type Gap
+    box   bx
+    line  ce
+    label lb
+    float top
+    float btm
+    bool  bull
+    bool  inv
+
+var array<Gap> gaps = array.new<Gap>()
+
+atr200 = ta.atr(200)
+
+// A 3-candle imbalance: candle 1 and candle 3 do not overlap.
+bullRaw = low > high[2] and (not fvgDisp or close[1] > open[1])
+bearRaw = high < low[2] and (not fvgDisp or close[1] < open[1])
+
+bullTop = low
+bullBtm = high[2]
+bearTop = low[2]
+bearBtm = high
+
+wantLbl(bool inv) => fvgLblMode == "All" or (fvgLblMode == "IFVG only" and inv)
+sizeOk(float t, float b) => na(atr200) or fvgMinAtr <= 0 or (t - b) >= atr200 * fvgMinAtr
+
+newGap(float t, float b, bool isBull) =>
+    col = isBull ? fvgBullCol : fvgBearCol
+    line ceLn = na
+    if fvgCEOn
+        ceLn := line.new(bar_index - 2, math.avg(t, b), bar_index + 1, math.avg(t, b),
+             color = color.new(col, 20), style = lineStyle(fvgCESt))
+    label zl = na
+    if wantLbl(false)
+        zl := label.new(bar_index + 4, math.avg(t, b), "FVG", style = label.style_none,
+             textcolor = fvgLblCol, size = size.tiny)
+    array.push(gaps, Gap.new(
+         bx  = box.new(bar_index - 2, t, bar_index + 1, b, border_color = color.new(col, 60),
+                 border_width = fvgBoxWd, border_style = lineStyle(fvgBoxSt), bgcolor = col),
+         ce  = ceLn, lb = zl, top = t, btm = b, bull = isBull, inv = false))
+    if array.size(gaps) > fvgMax
+        Gap old = array.shift(gaps)
+        box.delete(old.bx)
+        line.delete(old.ce)
+        label.delete(old.lb)
+
+newBullFVG = fvgShow and bullRaw and sizeOk(bullTop, bullBtm) and barstate.isconfirmed
+newBearFVG = fvgShow and bearRaw and sizeOk(bearTop, bearBtm) and barstate.isconfirmed
+
+if newBullFVG
+    newGap(bullTop, bullBtm, true)
+if newBearFVG
+    newGap(bearTop, bearBtm, false)
+
+var bool newIFVG = false
+newIFVG := false
+
+if array.size(gaps) > 0
+    for i = array.size(gaps) - 1 to 0
+        Gap g = array.get(gaps, i)
+        // A zone is breached when a bar CLOSES through its far edge.
+        breached = barstate.isconfirmed and (g.bull ? close < g.btm : close > g.top)
+        if breached
+            if not g.inv and ifvgOn
+                // A mitigated FVG flips polarity and becomes an inverted FVG.
+                g.inv  := true
+                g.bull := not g.bull
+                icol   = g.bull ? ifvgBullCol : ifvgBearCol
+                box.set_bgcolor(g.bx, icol)
+                box.set_border_color(g.bx, color.new(icol, 50))
+                if not na(g.ce)
+                    line.set_color(g.ce, color.new(icol, 20))
+                if wantLbl(true)
+                    if na(g.lb)
+                        g.lb := label.new(bar_index + 4, math.avg(g.top, g.btm), "IFVG",
+                             style = label.style_none, textcolor = fvgLblCol, size = size.tiny)
+                    else
+                        label.set_text(g.lb, "IFVG")
+                newIFVG := true
+            else
+                box.delete(g.bx)
+                line.delete(g.ce)
+                label.delete(g.lb)
+                array.remove(gaps, i)
+        else
+            box.set_right(g.bx, bar_index + 1)
+            if not na(g.ce)
+                line.set_x2(g.ce, bar_index + 1)
+            if not na(g.lb)
+                label.set_xy(g.lb, bar_index + 4, math.avg(g.top, g.btm))
+
 // ═════════════════════════════════════════════════════════════════════════════
 // Sessions
 // ═════════════════════════════════════════════════════════════════════════════
@@ -76,44 +203,67 @@ newM = inM and not inM[1]
 newP = inP and not inP[1]
 
 sessDraw(bool active, bool isNew, color col, string nm) =>
-    var array<box>  bxs = array.new<box>()
-    var array<line> lns = array.new<line>()
-    var box   bx = na
-    var line  lh = na
-    var line  ll = na
-    var float hi = na
-    var float lo = na
+    var array<box>   bxs  = array.new<box>()
+    var array<line>  lns  = array.new<line>()
+    var box   bx   = na
+    var line  lh   = na
+    var line  ll   = na
+    var label lbH  = na
+    var label lbL  = na
+    var float hi   = na
+    var float lo   = na
+    var int   sBar = na
+
     if isNew
-        hi := high
-        lo := low
-        bx := box.new(bar_index, high, bar_index, low, border_color = color.new(col, 40),
-             bgcolor = color.new(col, sesFillTr), text = nm, text_size = size.tiny,
-             text_color = color.new(col, 25))
-        array.push(bxs, bx)
-        if array.size(bxs) > sesKeep
-            box.delete(array.shift(bxs))
-        if sesLines
-            lh := line.new(bar_index, high, bar_index, high, color = col, style = line.style_dotted)
-            ll := line.new(bar_index, low,  bar_index, low,  color = col, style = line.style_dotted)
+        hi   := high
+        lo   := low
+        sBar := bar_index
+        if sesBoxOn
+            bx := box.new(bar_index, high, bar_index, low, border_color = color.new(col, 40),
+                 bgcolor = color.new(col, sesFillTr), text = nm, text_size = size.tiny,
+                 text_color = color.new(col, 25))
+            array.push(bxs, bx)
+            if array.size(bxs) > sesKeep
+                box.delete(array.shift(bxs))
+        if sesLineOn
+            ext = sesExt == "To right edge" ? extend.right : extend.none
+            lh := line.new(bar_index, high, bar_index, high, color = col,
+                 style = lineStyle(sesLineSt), width = sesLineWd, extend = ext)
+            ll := line.new(bar_index, low,  bar_index, low,  color = col,
+                 style = lineStyle(sesLineSt), width = sesLineWd, extend = ext)
             array.push(lns, lh)
             array.push(lns, ll)
             if array.size(lns) > sesKeep * 2
                 line.delete(array.shift(lns))
                 line.delete(array.shift(lns))
-    else if active and not na(bx)
+            // Only the newest session of each type carries labels, so the chart
+            // does not fill with text.
+            if sesLbl
+                label.delete(lbH)
+                label.delete(lbL)
+                lbH := label.new(bar_index, high, nm + " H", style = label.style_none,
+                     textcolor = sesLblCol, size = size.tiny)
+                lbL := label.new(bar_index, low,  nm + " L", style = label.style_none,
+                     textcolor = sesLblCol, size = size.tiny)
+    else if active
         hi := math.max(hi, high)
         lo := math.min(lo, low)
-        box.set_top(bx, hi)
-        box.set_bottom(bx, lo)
-        box.set_right(bx, bar_index)
-        if not na(lh)
-            line.set_xy1(lh, bar_index, hi)
-            line.set_xy2(lh, bar_index, hi)
-            line.set_xy1(ll, bar_index, lo)
-            line.set_xy2(ll, bar_index, lo)
-    else if not na(lh)
-        line.set_x2(lh, bar_index)
-        line.set_x2(ll, bar_index)
+        if not na(bx)
+            box.set_top(bx, hi)
+            box.set_bottom(bx, lo)
+            box.set_right(bx, bar_index)
+
+    // Lines span from the session open to wherever the extend mode says.
+    if not na(lh)
+        bool grow = active or sesExt == "Until next session"
+        int  x2   = grow ? bar_index : line.get_x2(lh)
+        line.set_xy1(lh, sBar, hi)
+        line.set_xy2(lh, x2, hi)
+        line.set_xy1(ll, sBar, lo)
+        line.set_xy2(ll, x2, lo)
+        if not na(lbH)
+            label.set_xy(lbH, sesExt == "To right edge" ? bar_index + 3 : x2 + 3, hi)
+            label.set_xy(lbL, sesExt == "To right edge" ? bar_index + 3 : x2 + 3, lo)
     active
 
 sessDraw(inA, newA, s1C, "Asia")
@@ -179,7 +329,7 @@ tblPos = switch dashPos
     "Top left"    => position.top_left
     => position.bottom_right
 
-var table dash = table.new(tblPos, 2, 6, border_width = 1)
+var table dash = table.new(tblPos, 2, 7, border_width = 1)
 
 dashRow(int r, string k, string v) =>
     table.cell(dash, 0, r, k, text_color = dashTxtCol, text_size = size.tiny,
@@ -192,8 +342,13 @@ px(float v) => na(v) ? "—" : str.tostring(v, format.mintick)
 if dashOn and barstate.islast
     float eq = fib(0.5)
     dashRow(0, "ICT LEVELS", timeframe.period)
-    dashRow(1, "Bars",       str.tostring(bar_index + 1))
+    dashRow(1, "Live FVG / IFVG", str.tostring(array.size(gaps)))
     dashRow(2, "Session",    activeSes)
     dashRow(3, "PDH / PDL",  px(pdh) + " / " + px(pdl))
     dashRow(4, "PWH / PWL",  px(pwh) + " / " + px(pwl))
     dashRow(5, "PD bias",    na(eq) ? "—" : close > eq ? "Premium" : close < eq ? "Discount" : "EQ")
+    dashRow(6, "Bars",       str.tostring(bar_index + 1))
+
+alertcondition(newBullFVG, "Bullish FVG", "Bullish FVG formed on {{ticker}} {{interval}}")
+alertcondition(newBearFVG, "Bearish FVG", "Bearish FVG formed on {{ticker}} {{interval}}")
+alertcondition(newIFVG,    "IFVG",        "FVG inverted (IFVG) on {{ticker}} {{interval}}")

@@ -73,10 +73,15 @@ sesTz        = input.string("America/New_York", "Session timezone", group = G_SE
 sesKeep      = input.int(10,    "Sessions kept per type",           group = G_SES, minval = 1, maxval = 50, tooltip = "TradingView caps a script at 500 boxes / lines / labels. Keeping older sessions forever would evict the level lines, so old session drawings are removed.")
 sesBoxStyle  = input.string("Solid",  "Session box border", options = ["Solid", "Dashed", "Dotted"], group = G_SES, inline = "sb")
 sesBoxWidth  = input.int(1,     "W",                  group = G_SES, inline = "sb", minval = 0, maxval = 4)
-sesFillTr    = input.int(85,    "Fill transparency",  group = G_SES, minval = 0, maxval = 100)
-sesLines     = input.bool(true, "Extend session high/low", group = G_SES)
+sesBoxOn     = input.bool(true, "Session boxes",       group = G_SES, inline = "sbx")
+sesFillTr    = input.int(85,    "Fill transp",        group = G_SES, inline = "sbx", minval = 0, maxval = 100)
+sesLines     = input.bool(true, "Session high/low lines", group = G_SES)
 sesLineStyle = input.string("Dotted", "H/L line",     options = ["Solid", "Dashed", "Dotted"], group = G_SES, inline = "sl2")
 sesLineWidth = input.int(1,     "W",                  group = G_SES, inline = "sl2", minval = 1, maxval = 4)
+sesExt       = input.string("Until next session", "Extend",
+     options = ["While session is open", "Until next session", "To right edge"], group = G_SES)
+sesLbl       = input.bool(true, "Label session H/L",  group = G_SES, inline = "slb")
+sesLblCol    = input.color(#b2b5be, "",               group = G_SES, inline = "slb")
 s1On         = input.bool(true,  "Asia",     group = G_SES, inline = "a")
 s1Time       = input.session("2000-0000", "", group = G_SES, inline = "a")
 s1Col        = input.color(#9c27b0, "",       group = G_SES, inline = "a")
@@ -429,59 +434,91 @@ if smtBearSig or smtBullSig
 // ═════════════════════════════════════════════════════════════════════════════
 // 4) Sessions
 // ═════════════════════════════════════════════════════════════════════════════
-type SessDraw
-    box  bx
-    line hi
-    line lo
+// "Am I in the session" and "did it just start" are computed at GLOBAL scope.
+// Reading [1] on a variable local to a function is what stops Pine sizing its
+// history buffer, so the flags are passed in as plain parameters instead.
+inA = sesShow and s1On and not na(time(timeframe.period, s1Time, sesTz))
+inL = sesShow and s2On and not na(time(timeframe.period, s2Time, sesTz))
+inM = sesShow and s3On and not na(time(timeframe.period, s3Time, sesTz))
+inP = sesShow and s4On and not na(time(timeframe.period, s4Time, sesTz))
 
-drawSession(bool en, string sess, color col, string nm) =>
-    var array<SessDraw> past = array.new<SessDraw>()
-    var box   bx  = na
-    var line  lhi = na
-    var line  llo = na
-    var float hi  = na
-    var float lo  = na
-    bool inSess = en and sesShow and not na(time(timeframe.period, sess, sesTz))
-    if inSess and not inSess[1]
-        hi := high
-        lo := low
-        bx := box.new(bar_index, high, bar_index, low, border_color = color.new(col, 40),
-             border_width = sesBoxWidth, border_style = lineStyle(sesBoxStyle),
-             bgcolor = color.new(col, sesFillTr), text = nm, text_size = size.tiny,
-             text_color = color.new(col, 25))
+newA = inA and not inA[1]
+newL = inL and not inL[1]
+newM = inM and not inM[1]
+newP = inP and not inP[1]
+
+drawSession(bool active, bool isNew, color col, string nm) =>
+    var array<box>  bxs  = array.new<box>()
+    var array<line> lns  = array.new<line>()
+    var box   bx   = na
+    var line  lh   = na
+    var line  ll   = na
+    var label lbH  = na
+    var label lbL  = na
+    var float hi   = na
+    var float lo   = na
+    var int   sBar = na
+
+    if isNew
+        hi   := high
+        lo   := low
+        sBar := bar_index
+        if sesBoxOn
+            bx := box.new(bar_index, high, bar_index, low, border_color = color.new(col, 40),
+                 border_width = sesBoxWidth, border_style = lineStyle(sesBoxStyle),
+                 bgcolor = color.new(col, sesFillTr), text = nm, text_size = size.tiny,
+                 text_color = color.new(col, 25))
+            array.push(bxs, bx)
+            if array.size(bxs) > sesKeep
+                box.delete(array.shift(bxs))
         if sesLines
-            lhi := line.new(bar_index, high, bar_index, high, color = col,
-                 style = lineStyle(sesLineStyle), width = sesLineWidth)
-            llo := line.new(bar_index, low,  bar_index, low,  color = col,
-                 style = lineStyle(sesLineStyle), width = sesLineWidth)
-        array.push(past, SessDraw.new(bx, lhi, llo))
-        if array.size(past) > sesKeep
-            SessDraw old = array.shift(past)
-            box.delete(old.bx)
-            line.delete(old.hi)
-            line.delete(old.lo)
-    else if inSess
+            ext = sesExt == "To right edge" ? extend.right : extend.none
+            lh := line.new(bar_index, high, bar_index, high, color = col,
+                 style = lineStyle(sesLineStyle), width = sesLineWidth, extend = ext)
+            ll := line.new(bar_index, low,  bar_index, low,  color = col,
+                 style = lineStyle(sesLineStyle), width = sesLineWidth, extend = ext)
+            array.push(lns, lh)
+            array.push(lns, ll)
+            if array.size(lns) > sesKeep * 2
+                line.delete(array.shift(lns))
+                line.delete(array.shift(lns))
+            // Only the newest session of each type is labelled, so the chart
+            // does not fill with text.
+            if sesLbl
+                label.delete(lbH)
+                label.delete(lbL)
+                lbH := label.new(bar_index, high, nm + " H", style = label.style_none,
+                     textcolor = sesLblCol, size = size.tiny)
+                lbL := label.new(bar_index, low,  nm + " L", style = label.style_none,
+                     textcolor = sesLblCol, size = size.tiny)
+    else if active
         hi := math.max(hi, high)
         lo := math.min(lo, low)
-        box.set_top(bx, hi)
-        box.set_bottom(bx, lo)
-        box.set_right(bx, bar_index)
-        if sesLines and not na(lhi)
-            line.set_xy1(lhi, bar_index, hi)
-            line.set_xy2(lhi, bar_index, hi)
-            line.set_xy1(llo, bar_index, lo)
-            line.set_xy2(llo, bar_index, lo)
-    else if sesLines and not na(lhi)
-        // Session closed: keep dragging its high/low forward.
-        line.set_x2(lhi, bar_index)
-        line.set_x2(llo, bar_index)
-    inSess
+        if not na(bx)
+            box.set_top(bx, hi)
+            box.set_bottom(bx, lo)
+            box.set_right(bx, bar_index)
 
-inAsia = drawSession(s1On, s1Time, s1Col, "Asia")
-inLdn  = drawSession(s2On, s2Time, s2Col, "London")
-inNYam = drawSession(s3On, s3Time, s3Col, "NY AM")
-inNYpm = drawSession(s4On, s4Time, s4Col, "NY PM")
-activeSes = inAsia ? "Asia" : inLdn ? "London" : inNYam ? "NY AM" : inNYpm ? "NY PM" : "—"
+    // Lines run from the session open to wherever the extend mode says.
+    if not na(lh)
+        bool grow = active or sesExt == "Until next session"
+        int  x2   = grow ? bar_index : line.get_x2(lh)
+        line.set_xy1(lh, sBar, hi)
+        line.set_xy2(lh, x2, hi)
+        line.set_xy1(ll, sBar, lo)
+        line.set_xy2(ll, x2, lo)
+        if not na(lbH)
+            int lx = sesExt == "To right edge" ? bar_index + 3 : x2 + 3
+            label.set_xy(lbH, lx, hi)
+            label.set_xy(lbL, lx, lo)
+    active
+
+drawSession(inA, newA, s1Col, "Asia")
+drawSession(inL, newL, s2Col, "London")
+drawSession(inM, newM, s3Col, "NY AM")
+drawSession(inP, newP, s4Col, "NY PM")
+
+activeSes = inA ? "Asia" : inL ? "London" : inM ? "NY AM" : inP ? "NY PM" : "—"
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 5) Previous D / W / M high & low
