@@ -1,0 +1,369 @@
+//@version=6
+// Chart Info + Watermark — watermark (title / subtitle), quote panel and a
+// symbol-info panel (symbol · exchange · timeframe · date · price · change ·
+// countdown), each independently positioned, coloured, sized and framed.
+// Panels that share a screen position are stacked into one table instead of
+// overlapping each other.
+indicator("Chart Info + Watermark", shorttitle = "Info + WM", overlay = true)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Constants
+// ═════════════════════════════════════════════════════════════════════════════
+
+const string V_T = "top"
+const string V_M = "middle"
+const string V_B = "bottom"
+const string H_L = "left"
+const string H_C = "center"
+const string H_R = "right"
+
+const int MAX_ROWS = 16
+
+const string G_GL = "Global"
+const string G_WM = "Watermark"
+const string G_QT = "Quote"
+const string G_SI = "Symbol info"
+const string G_X1 = "Extra line 1"
+const string G_X2 = "Extra line 2"
+
+const string TT_PH = "Placeholders you can use in any text field:\n{ticker} {symbol} {exchange} {description} {currency}\n{tf} {date} {time} {price} {change} {countdown}"
+const string TT_CELL = "0 = auto. Otherwise a percentage of the chart's width / height."
+const string TT_ORD = "When several panels sit at the same screen position they are stacked into one table, lowest order on top."
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Helpers
+// ═════════════════════════════════════════════════════════════════════════════
+
+// 9 screen positions, indexed 0..8 (top-left → bottom-right).
+f_pi(string v, string h) =>
+    (v == V_T ? 0 : v == V_M ? 1 : 2) * 3 + (h == H_L ? 0 : h == H_C ? 1 : 2)
+
+f_size(string s) =>
+    switch s
+        "tiny"   => size.tiny
+        "small"  => size.small
+        "normal" => size.normal
+        "large"  => size.large
+        "huge"   => size.huge
+        => size.auto
+
+f_bump(string s) =>
+    switch s
+        "tiny"   => "small"
+        "small"  => "normal"
+        "normal" => "large"
+        "large"  => "huge"
+        "huge"   => "huge"
+        => "auto"
+
+f_ha(string s) =>
+    s == H_L ? text.align_left : s == H_R ? text.align_right : text.align_center
+
+f_va(string s) =>
+    s == V_T ? text.align_top : s == V_B ? text.align_bottom : text.align_center
+
+f_pad(int v) =>
+    (v < 10 ? "0" : "") + str.tostring(v)
+
+f_join(array<string> parts, bool stacked, string sep) =>
+    string o = ""
+    if array.size(parts) > 0
+        for i = 0 to array.size(parts) - 1
+            string p = array.get(parts, i)
+            o := i == 0 ? p : o + (stacked ? "\n" : sep) + p
+    o
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Inputs
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── Global ──
+gShow    = input.bool(true, "Enable indicator", group = G_GL)
+gFont    = input.string("Default", "Font", options = ["Default", "Monospace"], group = G_GL)
+gTzMode  = input.string("Exchange", "Timezone", options = ["Exchange", "UTC", "Custom"], group = G_GL, inline = "tz")
+gTzCust  = input.string("America/New_York", "", group = G_GL, inline = "tz")
+gDateFmt = input.string("yyyy-MM-dd", "Date format", options = ["yyyy-MM-dd", "dd-MM-yyyy", "MM/dd/yyyy", "dd MMM yyyy", "EEE dd MMM", "EEE dd MMM yyyy"], group = G_GL)
+gTimeFmt = input.string("HH:mm", "Time format", options = ["HH:mm", "HH:mm:ss", "hh:mm a"], group = G_GL)
+gClock   = input.string("Last bar", "Date / time source", options = ["Last bar", "Now"], group = G_GL, tooltip = "Last bar = the open time of the most recent bar. Now = the current wall-clock time, refreshed on every tick.")
+gGrid    = input.bool(false, "Separator lines between stacked rows", group = G_GL, tooltip = "Draws the panel's border colour between rows that sit at the same screen position.")
+gChgBase = input.string("Previous daily close", "Change basis", options = ["Previous daily close", "Previous bar close"], group = G_GL)
+
+// ── Watermark ──
+wmShow   = input.bool(true,  "Show?",        group = G_WM, inline = "wm1")
+wmBg     = input.color(color.new(color.black, 100), "", group = G_WM, inline = "wm1")
+wmNoBrd  = input.bool(true,  "Hide border?", group = G_WM, inline = "wm1")
+wmV      = input.string(V_T, "Position",     options = [V_T, V_M, V_B], group = G_WM, inline = "wm2")
+wmH      = input.string(H_C, "",             options = [H_L, H_C, H_R], group = G_WM, inline = "wm2")
+wmBrdCol = input.color(color.new(color.gray, 50), "Border", group = G_WM, inline = "wm3")
+wmBrdW   = input.int(1, "", minval = 0, maxval = 10, group = G_WM, inline = "wm3")
+wmW      = input.float(0, "Cell width %",    minval = 0, maxval = 100, group = G_WM, inline = "wm4", tooltip = TT_CELL)
+wmH_     = input.float(0, "height %",        minval = 0, maxval = 100, group = G_WM, inline = "wm4")
+wmOrd    = input.int(0, "Stack order", minval = 0, maxval = 9, group = G_WM, tooltip = TT_ORD)
+
+wmTitle  = input.string("TITLE", "Title",    group = G_WM, inline = "wt", tooltip = TT_PH)
+wmTitCol = input.color(color.new(color.gray, 55), "", group = G_WM, inline = "wt")
+wmTitSz  = input.string("huge", "",  options = ["auto", "tiny", "small", "normal", "large", "huge"], group = G_WM, inline = "wt")
+wmSub    = input.string("", "Subtitle",      group = G_WM, inline = "ws", tooltip = TT_PH)
+wmSubCol = input.color(color.new(color.gray, 65), "", group = G_WM, inline = "ws")
+wmSubSz  = input.string("large", "", options = ["auto", "tiny", "small", "normal", "large", "huge"], group = G_WM, inline = "ws")
+wmAlign  = input.string(H_C, "Text align", options = [H_L, H_C, H_R], group = G_WM, inline = "wa")
+wmVAlign = input.string(V_M, "",           options = [V_T, V_M, V_B], group = G_WM, inline = "wa")
+
+// ── Quote ──
+qtShow   = input.bool(false, "Show?",        group = G_QT, inline = "q1")
+qtCol    = input.color(color.new(color.gray, 40), "", group = G_QT, inline = "q1")
+qtBg     = input.color(color.new(color.black, 100), "", group = G_QT, inline = "q1")
+qtNoBrd  = input.bool(true,  "Hide border?", group = G_QT, inline = "q1")
+qtV      = input.string(V_B, "Position",     options = [V_T, V_M, V_B], group = G_QT, inline = "q2")
+qtH      = input.string(H_C, "",             options = [H_L, H_C, H_R], group = G_QT, inline = "q2")
+qtSz     = input.string("normal", "",        options = ["auto", "tiny", "small", "normal", "large", "huge"], group = G_QT, inline = "q2")
+qtAlign  = input.string(H_C, "Text align",   options = [H_L, H_C, H_R], group = G_QT, inline = "q3")
+qtVAlign = input.string(V_M, "",             options = [V_T, V_M, V_B], group = G_QT, inline = "q3")
+qtBrdCol = input.color(color.new(color.gray, 50), "Border", group = G_QT, inline = "q4")
+qtBrdW   = input.int(1, "", minval = 0, maxval = 10, group = G_QT, inline = "q4")
+qtW      = input.float(0, "Cell width %",    minval = 0, maxval = 100, group = G_QT, inline = "q5", tooltip = TT_CELL)
+qtH_     = input.float(0, "height %",        minval = 0, maxval = 100, group = G_QT, inline = "q5")
+qtOrd    = input.int(1, "Stack order", minval = 0, maxval = 9, group = G_QT, tooltip = TT_ORD)
+qtText   = input.text_area("", "Quote text", group = G_QT, tooltip = TT_PH)
+
+// ── Symbol info ──
+siShow   = input.bool(true,  "Show?",        group = G_SI, inline = "s1")
+siCol    = input.color(color.new(color.gray, 30), "", group = G_SI, inline = "s1")
+siBg     = input.color(color.new(color.black, 100), "", group = G_SI, inline = "s1")
+siNoBrd  = input.bool(true,  "Hide border?", group = G_SI, inline = "s1")
+siV      = input.string(V_B, "Position",     options = [V_T, V_M, V_B], group = G_SI, inline = "s2")
+siH      = input.string(H_R, "",             options = [H_L, H_C, H_R], group = G_SI, inline = "s2")
+siSz     = input.string("small", "",         options = ["auto", "tiny", "small", "normal", "large", "huge"], group = G_SI, inline = "s2")
+siAlign  = input.string(H_C, "Text align",   options = [H_L, H_C, H_R], group = G_SI, inline = "s3")
+siVAlign = input.string(V_M, "",             options = [V_T, V_M, V_B], group = G_SI, inline = "s3")
+siBrdCol = input.color(color.new(color.gray, 50), "Border", group = G_SI, inline = "s4")
+siBrdW   = input.int(1, "", minval = 0, maxval = 10, group = G_SI, inline = "s4")
+siW      = input.float(0, "Cell width %",    minval = 0, maxval = 100, group = G_SI, inline = "s5", tooltip = TT_CELL)
+siH_     = input.float(0, "height %",        minval = 0, maxval = 100, group = G_SI, inline = "s5")
+siOrd    = input.int(2, "Stack order", minval = 0, maxval = 9, group = G_SI, tooltip = TT_ORD)
+
+siOnText = input.bool(false, "Text?",      group = G_SI, inline = "e1")
+siOnSym  = input.bool(true,  "Symbol?",    group = G_SI, inline = "e1")
+siOnExch = input.bool(false, "Exchange?",  group = G_SI, inline = "e1")
+siOnTf   = input.bool(true,  "Timeframe?", group = G_SI, inline = "e2")
+siOnDate = input.bool(false, "Date?",      group = G_SI, inline = "e2")
+siOnTime = input.bool(false, "Time?",      group = G_SI, inline = "e2")
+siOnPx   = input.bool(false, "Price?",     group = G_SI, inline = "e3")
+siOnChg  = input.bool(false, "Change %?",  group = G_SI, inline = "e3")
+siOnCd   = input.bool(false, "Countdown?", group = G_SI, inline = "e3", tooltip = "Time left until the current bar closes.")
+siSymFmt = input.string("Ticker", "Symbol format", options = ["Ticker", "Exchange + ticker", "Full ticker ID", "Description"], group = G_SI)
+siBigSym = input.bool(true, "Render the symbol one size larger", group = G_SI)
+siTfSufx = input.string(" TIMEFRAME", "Timeframe suffix", group = G_SI, tooltip = "Appended after the timeframe, e.g. \"5m TIMEFRAME\". Leave empty for just \"5m\".")
+siLayout = input.string("Stacked", "Element layout", options = ["Stacked", "Inline"], group = G_SI, inline = "lay", tooltip = "Stacked = one table row per element. Inline = a single row, elements joined by the separator.")
+siSep    = input.string(" · ", "", group = G_SI, inline = "lay", tooltip = "Separator used when the layout is Inline.")
+siText   = input.text_area("", "Info text", group = G_SI, tooltip = TT_PH)
+
+// ── Extra line 1 ──
+x1Show   = input.bool(false, "Show?",        group = G_X1, inline = "x1a")
+x1Col    = input.color(color.new(color.gray, 30), "", group = G_X1, inline = "x1a")
+x1Bg     = input.color(color.new(color.black, 100), "", group = G_X1, inline = "x1a")
+x1NoBrd  = input.bool(true,  "Hide border?", group = G_X1, inline = "x1a")
+x1V      = input.string(V_T, "Position",     options = [V_T, V_M, V_B], group = G_X1, inline = "x1b")
+x1H      = input.string(H_L, "",             options = [H_L, H_C, H_R], group = G_X1, inline = "x1b")
+x1Sz     = input.string("normal", "",        options = ["auto", "tiny", "small", "normal", "large", "huge"], group = G_X1, inline = "x1b")
+x1Align  = input.string(H_L, "Text align",   options = [H_L, H_C, H_R], group = G_X1, inline = "x1c")
+x1VAlign = input.string(V_M, "",             options = [V_T, V_M, V_B], group = G_X1, inline = "x1c")
+x1BrdCol = input.color(color.new(color.gray, 50), "Border", group = G_X1, inline = "x1d")
+x1BrdW   = input.int(1, "", minval = 0, maxval = 10, group = G_X1, inline = "x1d")
+x1W      = input.float(0, "Cell width %",    minval = 0, maxval = 100, group = G_X1, inline = "x1e", tooltip = TT_CELL)
+x1H_     = input.float(0, "height %",        minval = 0, maxval = 100, group = G_X1, inline = "x1e")
+x1Ord    = input.int(3, "Stack order", minval = 0, maxval = 9, group = G_X1, tooltip = TT_ORD)
+x1Text   = input.text_area("{ticker} · {tf}", "Text", group = G_X1, tooltip = TT_PH)
+
+// ── Extra line 2 ──
+x2Show   = input.bool(false, "Show?",        group = G_X2, inline = "x2a")
+x2Col    = input.color(color.new(color.gray, 30), "", group = G_X2, inline = "x2a")
+x2Bg     = input.color(color.new(color.black, 100), "", group = G_X2, inline = "x2a")
+x2NoBrd  = input.bool(true,  "Hide border?", group = G_X2, inline = "x2a")
+x2V      = input.string(V_T, "Position",     options = [V_T, V_M, V_B], group = G_X2, inline = "x2b")
+x2H      = input.string(H_R, "",             options = [H_L, H_C, H_R], group = G_X2, inline = "x2b")
+x2Sz     = input.string("normal", "",        options = ["auto", "tiny", "small", "normal", "large", "huge"], group = G_X2, inline = "x2b")
+x2Align  = input.string(H_R, "Text align",   options = [H_L, H_C, H_R], group = G_X2, inline = "x2c")
+x2VAlign = input.string(V_M, "",             options = [V_T, V_M, V_B], group = G_X2, inline = "x2c")
+x2BrdCol = input.color(color.new(color.gray, 50), "Border", group = G_X2, inline = "x2d")
+x2BrdW   = input.int(1, "", minval = 0, maxval = 10, group = G_X2, inline = "x2d")
+x2W      = input.float(0, "Cell width %",    minval = 0, maxval = 100, group = G_X2, inline = "x2e", tooltip = TT_CELL)
+x2H_     = input.float(0, "height %",        minval = 0, maxval = 100, group = G_X2, inline = "x2e")
+x2Ord    = input.int(4, "Stack order", minval = 0, maxval = 9, group = G_X2, tooltip = TT_ORD)
+x2Text   = input.text_area("{date}", "Text", group = G_X2, tooltip = TT_PH)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Chart information
+// ═════════════════════════════════════════════════════════════════════════════
+
+fontFam = gFont == "Monospace" ? font.family_monospace : font.family_default
+tz      = gTzMode == "Exchange" ? syminfo.timezone : gTzMode == "UTC" ? "UTC" : gTzCust
+
+// Pretty timeframe: 5m, 4H, 1D, 1W, 3M …
+tfStr = timeframe.isseconds  ? str.tostring(timeframe.multiplier) + "s" :
+     timeframe.isminutes  ? (timeframe.multiplier >= 60 and timeframe.multiplier % 60 == 0 ? str.tostring(timeframe.multiplier / 60) + "H" : str.tostring(timeframe.multiplier) + "m") :
+     timeframe.isdaily    ? str.tostring(timeframe.multiplier) + "D" :
+     timeframe.isweekly   ? str.tostring(timeframe.multiplier) + "W" :
+     timeframe.ismonthly  ? str.tostring(timeframe.multiplier) + "M" : timeframe.period
+
+stamp    = gClock == "Now" ? timenow : time
+dateStr  = str.format_time(stamp, gDateFmt, tz)
+timeStr  = str.format_time(stamp, gTimeFmt, tz)
+priceStr = str.tostring(close, format.mintick)
+
+prevDayClose = request.security(syminfo.tickerid, "D", close[1], lookahead = barmerge.lookahead_on)
+chgRef  = gChgBase == "Previous bar close" ? nz(close[1], close) : prevDayClose
+chgPct  = na(chgRef) or chgRef == 0 ? float(na) : (close - chgRef) / chgRef * 100
+chgStr  = na(chgPct) ? "n/a" : (chgPct >= 0 ? "+" : "") + str.tostring(chgPct, "#.##") + "%"
+
+// Time left until the current bar closes.
+int cdSecs = int(math.max(0, (time_close - timenow) / 1000))
+int cdD = cdSecs / 86400
+int cdH = (cdSecs % 86400) / 3600
+int cdM = (cdSecs % 3600) / 60
+int cdS = cdSecs % 60
+cdStr = cdD > 0 ? str.tostring(cdD) + "d " + f_pad(cdH) + ":" + f_pad(cdM) :
+     cdH > 0 ? str.tostring(cdH) + ":" + f_pad(cdM) + ":" + f_pad(cdS) : f_pad(cdM) + ":" + f_pad(cdS)
+
+symStr = siSymFmt == "Exchange + ticker" ? syminfo.exchange + ":" + syminfo.ticker :
+     siSymFmt == "Full ticker ID" ? syminfo.tickerid :
+     siSymFmt == "Description"    ? syminfo.description : syminfo.ticker
+
+// Replace {…} placeholders in any user text.
+f_expand(string s) =>
+    string o = s
+    if str.contains(o, "{")
+        o := str.replace_all(o, "{ticker}",      syminfo.ticker)
+        o := str.replace_all(o, "{symbol}",      syminfo.tickerid)
+        o := str.replace_all(o, "{exchange}",    syminfo.exchange)
+        o := str.replace_all(o, "{description}", syminfo.description)
+        o := str.replace_all(o, "{currency}",    syminfo.currency)
+        o := str.replace_all(o, "{tf}",          tfStr)
+        o := str.replace_all(o, "{timeframe}",   tfStr)
+        o := str.replace_all(o, "{date}",        dateStr)
+        o := str.replace_all(o, "{time}",        timeStr)
+        o := str.replace_all(o, "{price}",       priceStr)
+        o := str.replace_all(o, "{change}",      chgStr)
+        o := str.replace_all(o, "{countdown}",   cdStr)
+    o
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Layout — one table per screen position, panels stacked as rows
+// ═════════════════════════════════════════════════════════════════════════════
+
+type Ln
+    int    pi      // screen position 0..8
+    int    ord     // stack order within that position
+    string txt
+    color  tcol
+    color  bcol
+    string sz
+    string ha
+    string va
+    float  w
+    float  h
+    color  fcol    // frame / border colour of the owning panel
+    int    fw
+
+var table t0 = table.new(position.top_left,      1, MAX_ROWS)
+var table t1 = table.new(position.top_center,    1, MAX_ROWS)
+var table t2 = table.new(position.top_right,     1, MAX_ROWS)
+var table t3 = table.new(position.middle_left,   1, MAX_ROWS)
+var table t4 = table.new(position.middle_center, 1, MAX_ROWS)
+var table t5 = table.new(position.middle_right,  1, MAX_ROWS)
+var table t6 = table.new(position.bottom_left,   1, MAX_ROWS)
+var table t7 = table.new(position.bottom_center, 1, MAX_ROWS)
+var table t8 = table.new(position.bottom_right,  1, MAX_ROWS)
+var array<table> tbls = array.from(t0, t1, t2, t3, t4, t5, t6, t7, t8)
+
+if barstate.islast
+    array<Ln> ls = array.new<Ln>()
+
+    if gShow
+        // Watermark ───────────────────────────────────────────────────────────
+        int   wmPi   = f_pi(wmV, wmH)
+        color wmFCol = wmNoBrd ? color.new(color.black, 100) : wmBrdCol
+        int   wmFW   = wmNoBrd ? 0 : wmBrdW
+        if wmShow and str.length(wmTitle) > 0
+            array.push(ls, Ln.new(wmPi, wmOrd, f_expand(wmTitle), wmTitCol, wmBg, f_size(wmTitSz), f_ha(wmAlign), f_va(wmVAlign), wmW, wmH_, wmFCol, wmFW))
+        if wmShow and str.length(wmSub) > 0
+            array.push(ls, Ln.new(wmPi, wmOrd, f_expand(wmSub), wmSubCol, wmBg, f_size(wmSubSz), f_ha(wmAlign), f_va(wmVAlign), wmW, wmH_, wmFCol, wmFW))
+
+        // Quote ───────────────────────────────────────────────────────────────
+        if qtShow and str.length(qtText) > 0
+            array.push(ls, Ln.new(f_pi(qtV, qtH), qtOrd, f_expand(qtText), qtCol, qtBg, f_size(qtSz), f_ha(qtAlign), f_va(qtVAlign), qtW, qtH_,
+                 qtNoBrd ? color.new(color.black, 100) : qtBrdCol, qtNoBrd ? 0 : qtBrdW))
+
+        // Symbol info ─────────────────────────────────────────────────────────
+        if siShow
+            int   siPi   = f_pi(siV, siH)
+            color siFCol = siNoBrd ? color.new(color.black, 100) : siBrdCol
+            int   siFW   = siNoBrd ? 0 : siBrdW
+            array<string> parts = array.new<string>()   // element text
+            array<string> psz   = array.new<string>()   // element text size
+            if siOnText and str.length(siText) > 0
+                array.push(parts, f_expand(siText))
+                array.push(psz, siSz)
+            if siOnSym
+                array.push(parts, symStr)
+                array.push(psz, siBigSym ? f_bump(siSz) : siSz)
+            if siOnExch
+                array.push(parts, syminfo.exchange)
+                array.push(psz, siSz)
+            if siOnTf
+                array.push(parts, tfStr + siTfSufx)
+                array.push(psz, siSz)
+            if siOnDate
+                array.push(parts, dateStr)
+                array.push(psz, siSz)
+            if siOnTime
+                array.push(parts, timeStr)
+                array.push(psz, siSz)
+            if siOnPx
+                array.push(parts, priceStr)
+                array.push(psz, siSz)
+            if siOnChg
+                array.push(parts, chgStr)
+                array.push(psz, siSz)
+            if siOnCd
+                array.push(parts, cdStr)
+                array.push(psz, siSz)
+
+            if siLayout == "Inline"
+                string siTxt = f_join(parts, false, siSep)
+                if str.length(siTxt) > 0
+                    array.push(ls, Ln.new(siPi, siOrd, siTxt, siCol, siBg, f_size(siSz), f_ha(siAlign), f_va(siVAlign), siW, siH_, siFCol, siFW))
+            else if array.size(parts) > 0
+                // one table row per element, so each can carry its own text size
+                for k = 0 to array.size(parts) - 1
+                    array.push(ls, Ln.new(siPi, siOrd, array.get(parts, k), siCol, siBg, f_size(array.get(psz, k)), f_ha(siAlign), f_va(siVAlign), siW, siH_, siFCol, siFW))
+
+        // Extra lines ─────────────────────────────────────────────────────────
+        if x1Show and str.length(x1Text) > 0
+            array.push(ls, Ln.new(f_pi(x1V, x1H), x1Ord, f_expand(x1Text), x1Col, x1Bg, f_size(x1Sz), f_ha(x1Align), f_va(x1VAlign), x1W, x1H_,
+                 x1NoBrd ? color.new(color.black, 100) : x1BrdCol, x1NoBrd ? 0 : x1BrdW))
+        if x2Show and str.length(x2Text) > 0
+            array.push(ls, Ln.new(f_pi(x2V, x2H), x2Ord, f_expand(x2Text), x2Col, x2Bg, f_size(x2Sz), f_ha(x2Align), f_va(x2VAlign), x2W, x2H_,
+                 x2NoBrd ? color.new(color.black, 100) : x2BrdCol, x2NoBrd ? 0 : x2BrdW))
+
+    // Rebuild every table from scratch so toggling an input takes effect at once
+    for i = 0 to 8
+        table.clear(array.get(tbls, i), 0, 0, 0, MAX_ROWS - 1)
+
+    if array.size(ls) > 0
+        for i = 0 to 8
+            table t   = array.get(tbls, i)
+            int   row = 0
+            for ord = 0 to 9
+                for j = 0 to array.size(ls) - 1
+                    Ln ln = array.get(ls, j)
+                    if ln.pi == i and ln.ord == ord and row < MAX_ROWS
+                        if row == 0
+                            table.set_frame_color(t, ln.fcol)
+                            table.set_frame_width(t, ln.fw)
+                            table.set_border_color(t, ln.fcol)
+                            table.set_border_width(t, gGrid ? ln.fw : 0)
+                        table.cell(t, 0, row, ln.txt, width = ln.w, height = ln.h, text_color = ln.tcol,
+                             text_halign = ln.ha, text_valign = ln.va, text_size = ln.sz, bgcolor = ln.bcol,
+                             text_font_family = fontFam)
+                        row += 1
