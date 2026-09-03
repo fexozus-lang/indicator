@@ -227,7 +227,7 @@ int cdS = cdSecs % 60
 cdStr = cdD > 0 ? str.tostring(cdD) + "d " + f_pad(cdH) + ":" + f_pad(cdM) :
      cdH > 0 ? str.tostring(cdH) + ":" + f_pad(cdM) + ":" + f_pad(cdS) : f_pad(cdM) + ":" + f_pad(cdS)
 
-symStr = siSymFmt == "Exchange + ticker" ? syminfo.exchange + ":" + syminfo.ticker :
+symStr = siSymFmt == "Exchange + ticker" ? syminfo.prefix + ":" + syminfo.ticker :
      siSymFmt == "Full ticker ID" ? syminfo.tickerid :
      siSymFmt == "Description"    ? syminfo.description : syminfo.ticker
 
@@ -237,7 +237,7 @@ f_expand(string s) =>
     if str.contains(o, "{")
         o := str.replace_all(o, "{ticker}",      syminfo.ticker)
         o := str.replace_all(o, "{symbol}",      syminfo.tickerid)
-        o := str.replace_all(o, "{exchange}",    syminfo.exchange)
+        o := str.replace_all(o, "{exchange}",    syminfo.prefix)
         o := str.replace_all(o, "{description}", syminfo.description)
         o := str.replace_all(o, "{currency}",    syminfo.currency)
         o := str.replace_all(o, "{tf}",          tfStr)
@@ -315,7 +315,7 @@ if barstate.islast
                         v := symStr
                         z := siBigSym ? f_bump(siSz) : siSz
                     else if k == "exchange" and siOnExch
-                        v := syminfo.exchange
+                        v := syminfo.prefix
                     else if k == "tf" and siOnTf
                         v := tfStr + siTfSufx
                     else if k == "date" and siOnDate
