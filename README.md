@@ -20,6 +20,19 @@ Paste it into TradingView → Pine Editor → *Add to chart*.
 
 `Bullish FVG`, `Bearish FVG`, `IFVG`, `Bullish CISD`, `Bearish CISD`, `Bullish SMT`, `Bearish SMT`.
 
+## Styling
+
+Every drawing exposes **colour + line style (Solid / Dashed / Dotted) + width** in the settings panel:
+
+- **FVG / IFVG** — separate fills for bullish/bearish FVG and bullish/bearish IFVG (each colour input has TradingView's opacity slider), zone border style & width, CE line style & width, and a zone-label mode: `None` / `IFVG only` / `All`.
+- **CISD** — line colour per direction, style, width, extension length, and an optional floating `CISD` label at the right end of the level.
+- **SMT** — connector style and width. `Match chart text colour` draws it in `chart.fg_color` so it reads on light and dark themes; turn it off to set explicit bullish/bearish colours.
+- **Sessions** — per-session colour, box border style & width, fill transparency, and high/low line style & width.
+- **Previous D/W/M** — colour, style and width per timeframe.
+- **PD arrays** — four independent sets: boundary (0.0 / 1.0), equilibrium (0.5), OTE (0.705 / 0.295), and the remaining fib levels, each with its own colour, style and width.
+
+Labels are drawn as floating text (`label.style_none`) rather than bubbles, so they sit beside the level instead of covering price.
+
 ## Repainting
 
 Everything that changes structure is gated on bar close:

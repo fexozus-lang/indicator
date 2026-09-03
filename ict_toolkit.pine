@@ -19,21 +19,30 @@ const string G_PD   = "PD Arrays (Premium / Discount / OTE)"
 fvgShow      = input.bool(true,  "Show FVG",                       group = G_FVG)
 fvgDisp      = input.bool(true,  "Require displacement candle",     group = G_FVG, tooltip = "The middle candle must close in the direction of the gap.")
 fvgMinAtr    = input.float(0.0,  "Min gap size (× ATR200)",         group = G_FVG, minval = 0, step = 0.05)
-fvgShowCE    = input.bool(true,  "Show consequent encroachment (CE)", group = G_FVG)
+fvgBoxStyle  = input.string("Solid", "Zone border",   options = ["Solid", "Dashed", "Dotted"], group = G_FVG, inline = "fb")
+fvgBoxWidth  = input.int(1,     "W",                  group = G_FVG, inline = "fb", minval = 0, maxval = 4)
+fvgShowCE    = input.bool(true, "Show consequent encroachment (CE)", group = G_FVG)
+fvgCEStyle   = input.string("Dotted", "CE line",      options = ["Solid", "Dashed", "Dotted"], group = G_FVG, inline = "fce")
+fvgCEWidth   = input.int(1,     "W",                  group = G_FVG, inline = "fce", minval = 1, maxval = 4)
 fvgMax       = input.int(20,     "Max live gaps kept",              group = G_FVG, minval = 1, maxval = 100)
 ifvgShow     = input.bool(true,  "Invert mitigated FVG into IFVG",  group = G_FVG)
+fvgLabelMode = input.string("IFVG only", "Zone labels", options = ["None", "IFVG only", "All"], group = G_FVG)
+fvgLabelCol  = input.color(#5d606b, "Zone label text",                group = G_FVG)
 fvgBullCol   = input.color(color.new(#089981, 82), "Bullish FVG",   group = G_FVG, inline = "fc")
 fvgBearCol   = input.color(color.new(#f23645, 82), "Bearish FVG",   group = G_FVG, inline = "fc")
-ifvgBullCol  = input.color(color.new(#2962ff, 78), "Bullish IFVG",  group = G_FVG, inline = "ic")
-ifvgBearCol  = input.color(color.new(#ff9800, 78), "Bearish IFVG",  group = G_FVG, inline = "ic")
+ifvgBullCol  = input.color(color.new(#26c6da, 72), "Bullish IFVG",  group = G_FVG, inline = "ic")
+ifvgBearCol  = input.color(color.new(#ff7043, 72), "Bearish IFVG",  group = G_FVG, inline = "ic")
 
 // ── CISD ──
 cisdShow     = input.bool(true,  "Show CISD",                       group = G_CISD)
 cisdConfirm  = input.bool(true,  "Confirm on bar close",            group = G_CISD, tooltip = "Off = marks intrabar the moment price trades through the level (will repaint until the bar closes).")
 cisdMinRun   = input.int(1,      "Min candles in opposing run",     group = G_CISD, minval = 1)
 cisdExtend   = input.int(12,     "Extend CISD line (bars)",         group = G_CISD, minval = 0)
-cisdBullCol  = input.color(#089981, "Bullish CISD",                 group = G_CISD, inline = "cc")
-cisdBearCol  = input.color(#f23645, "Bearish CISD",                 group = G_CISD, inline = "cc")
+cisdStyle    = input.string("Solid", "CISD line",     options = ["Solid", "Dashed", "Dotted"], group = G_CISD, inline = "cl")
+cisdWidth    = input.int(1,     "W",                  group = G_CISD, inline = "cl", minval = 1, maxval = 4)
+cisdBullCol  = input.color(#3b82f6, "Bullish CISD",                 group = G_CISD, inline = "cc")
+cisdBearCol  = input.color(#3b82f6, "Bearish CISD",                 group = G_CISD, inline = "cc")
+cisdLabels   = input.bool(true,     "Show \"CISD\" label",           group = G_CISD)
 
 // ── SMT ──
 smtShow      = input.bool(true,  "Show SMT divergence",             group = G_SMT)
@@ -42,13 +51,21 @@ smt1On       = input.bool(true,  "Correlated symbol 1",             group = G_SM
 smt1Sym      = input.symbol("CME_MINI:NQ1!", "",                    group = G_SMT, inline = "s1")
 smt2On       = input.bool(false, "Correlated symbol 2",             group = G_SMT, inline = "s2")
 smt2Sym      = input.symbol("CME_MINI:YM1!", "",                    group = G_SMT, inline = "s2")
+smtStyle     = input.string("Solid", "SMT connector",  options = ["Solid", "Dashed", "Dotted"], group = G_SMT, inline = "sl")
+smtWidth     = input.int(1,     "W",                  group = G_SMT, inline = "sl", minval = 1, maxval = 4)
+smtAutoCol   = input.bool(true,  "Match chart text colour",         group = G_SMT, tooltip = "Draws the SMT connector in the chart's foreground colour so it reads on light and dark themes.")
 smtBearCol   = input.color(#f23645, "Bearish SMT (at highs)",       group = G_SMT, inline = "sc")
 smtBullCol   = input.color(#089981, "Bullish SMT (at lows)",        group = G_SMT, inline = "sc")
 
 // ── Sessions ──
 sesShow      = input.bool(true,  "Show sessions",                   group = G_SES)
 sesTz        = input.string("America/New_York", "Session timezone", group = G_SES)
-sesLines     = input.bool(true,  "Extend session high/low",         group = G_SES)
+sesBoxStyle  = input.string("Solid",  "Session box border", options = ["Solid", "Dashed", "Dotted"], group = G_SES, inline = "sb")
+sesBoxWidth  = input.int(1,     "W",                  group = G_SES, inline = "sb", minval = 0, maxval = 4)
+sesFillTr    = input.int(92,    "Fill transparency",  group = G_SES, minval = 0, maxval = 100)
+sesLines     = input.bool(true, "Extend session high/low", group = G_SES)
+sesLineStyle = input.string("Dotted", "H/L line",     options = ["Solid", "Dashed", "Dotted"], group = G_SES, inline = "sl2")
+sesLineWidth = input.int(1,     "W",                  group = G_SES, inline = "sl2", minval = 1, maxval = 4)
 s1On         = input.bool(true,  "Asia",     group = G_SES, inline = "a")
 s1Time       = input.session("2000-0000", "", group = G_SES, inline = "a")
 s1Col        = input.color(#9c27b0, "",       group = G_SES, inline = "a")
@@ -63,24 +80,49 @@ s4Time       = input.session("1330-1600", "", group = G_SES, inline = "d")
 s4Col        = input.color(#607d8b, "",       group = G_SES, inline = "d")
 
 // ── Previous HTF levels ──
-pdOn         = input.bool(true,  "Previous Day H/L",   group = G_HTF, inline = "h1")
-pdCol        = input.color(#787b86, "",                group = G_HTF, inline = "h1")
-pwOn         = input.bool(true,  "Previous Week H/L",  group = G_HTF, inline = "h2")
-pwCol        = input.color(#2962ff, "",                group = G_HTF, inline = "h2")
-pmOn         = input.bool(false, "Previous Month H/L", group = G_HTF, inline = "h3")
-pmCol        = input.color(#9c27b0, "",                group = G_HTF, inline = "h3")
+pdOn         = input.bool(true,  "Prev Day H/L",   group = G_HTF, inline = "h1")
+pdCol        = input.color(#787b86, "",            group = G_HTF, inline = "h1")
+pdStyle      = input.string("Solid",  "", options = ["Solid", "Dashed", "Dotted"], group = G_HTF, inline = "h1")
+pdWidth      = input.int(1, "W",                   group = G_HTF, inline = "h1", minval = 1, maxval = 4)
+pwOn         = input.bool(true,  "Prev Week H/L",  group = G_HTF, inline = "h2")
+pwCol        = input.color(#2962ff, "",            group = G_HTF, inline = "h2")
+pwStyle      = input.string("Dashed", "", options = ["Solid", "Dashed", "Dotted"], group = G_HTF, inline = "h2")
+pwWidth      = input.int(1, "W",                   group = G_HTF, inline = "h2", minval = 1, maxval = 4)
+pmOn         = input.bool(false, "Prev Month H/L", group = G_HTF, inline = "h3")
+pmCol        = input.color(#9c27b0, "",            group = G_HTF, inline = "h3")
+pmStyle      = input.string("Dotted", "", options = ["Solid", "Dashed", "Dotted"], group = G_HTF, inline = "h3")
+pmWidth      = input.int(2, "W",                   group = G_HTF, inline = "h3", minval = 1, maxval = 4)
 htfLabels    = input.bool(true,  "Show level labels",  group = G_HTF)
 
 // ── PD arrays ──
 pdaOn        = input.bool(true,  "Show PD array",                   group = G_PD)
 pdaRange     = input.string("Previous Day", "Range", options = ["Previous Day", "Previous Week", "Previous Month", "Current Day"], group = G_PD)
 pdaOTEonly   = input.bool(false, "OTE + equilibrium only",          group = G_PD)
-pdaCol       = input.color(#787b86, "Line color",                   group = G_PD)
+pdaLabels    = input.bool(true,  "Show level labels",               group = G_PD)
+pdaBndCol    = input.color(#787b86, "Boundary 0.0 / 1.0",           group = G_PD, inline = "p1")
+pdaBndStyle  = input.string("Solid",  "", options = ["Solid", "Dashed", "Dotted"], group = G_PD, inline = "p1")
+pdaBndWidth  = input.int(1, "W",                                    group = G_PD, inline = "p1", minval = 1, maxval = 4)
+pdaEqCol     = input.color(#f23645, "Equilibrium 0.5",              group = G_PD, inline = "p2")
+pdaEqStyle   = input.string("Solid",  "", options = ["Solid", "Dashed", "Dotted"], group = G_PD, inline = "p2")
+pdaEqWidth   = input.int(2, "W",                                    group = G_PD, inline = "p2", minval = 1, maxval = 4)
+pdaOteCol    = input.color(#089981, "OTE 0.705 / 0.295",            group = G_PD, inline = "p3")
+pdaOteStyle  = input.string("Dashed", "", options = ["Solid", "Dashed", "Dotted"], group = G_PD, inline = "p3")
+pdaOteWidth  = input.int(1, "W",                                    group = G_PD, inline = "p3", minval = 1, maxval = 4)
+pdaSubCol    = input.color(#b2b5be, "Other fib levels",             group = G_PD, inline = "p4")
+pdaSubStyle  = input.string("Dotted", "", options = ["Solid", "Dashed", "Dotted"], group = G_PD, inline = "p4")
+pdaSubWidth  = input.int(1, "W",                                    group = G_PD, inline = "p4", minval = 1, maxval = 4)
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Shared
 // ═════════════════════════════════════════════════════════════════════════════
 atr200 = ta.atr(200)
+
+// "Solid" / "Dashed" / "Dotted"  ->  a line.style_* constant.
+lineStyle(string name) =>
+    switch name
+        "Dashed" => line.style_dashed
+        "Dotted" => line.style_dotted
+        => line.style_solid
 
 var int dStart = 0
 var int wStart = 0
@@ -98,6 +140,7 @@ if timeframe.change("M")
 type Gap
     box   bx
     line  ce
+    label lb
     float top
     float btm
     bool  bull
@@ -113,6 +156,8 @@ bullBtm = high[2]
 bearTop = low[2]
 bearBtm = high
 
+wantLabel(bool inv) => fvgLabelMode == "All" or (fvgLabelMode == "IFVG only" and inv)
+
 sizeOk(float t, float b) => na(atr200) or fvgMinAtr <= 0 or (t - b) >= atr200 * fvgMinAtr
 
 newGap(float t, float b, bool isBull) =>
@@ -120,16 +165,22 @@ newGap(float t, float b, bool isBull) =>
     line ceLn = na
     if fvgShowCE
         ceLn := line.new(bar_index - 2, math.avg(t, b), bar_index + 1, math.avg(t, b),
-             color = color.new(col, 20), style = line.style_dotted)
+             color = color.new(col, 20), style = lineStyle(fvgCEStyle), width = fvgCEWidth)
+    label zl = na
+    if wantLabel(false)
+        zl := label.new(bar_index + 4, math.avg(t, b), "FVG", style = label.style_none,
+             textcolor = fvgLabelCol, size = size.tiny)
     Gap g = Gap.new(
-         bx  = box.new(bar_index - 2, t, bar_index + 1, b, border_color = color.new(col, 60), bgcolor = col),
-         ce  = ceLn, top = t, btm = b, bull = isBull, inv = false)
+         bx  = box.new(bar_index - 2, t, bar_index + 1, b, border_color = color.new(col, 60),
+                 border_width = fvgBoxWidth, border_style = lineStyle(fvgBoxStyle), bgcolor = col),
+         ce  = ceLn, lb = zl, top = t, btm = b, bull = isBull, inv = false)
     array.push(gaps, g)
     if array.size(gaps) > fvgMax
         Gap old = array.shift(gaps)
         box.delete(old.bx)
         if not na(old.ce)
             line.delete(old.ce)
+        label.delete(old.lb)
 
 newBullFVG = fvgShow and bullRaw and sizeOk(bullTop, bullBtm) and barstate.isconfirmed
 newBearFVG = fvgShow and bearRaw and sizeOk(bearTop, bearBtm) and barstate.isconfirmed
@@ -157,16 +208,28 @@ if array.size(gaps) > 0
                 box.set_border_color(g.bx, color.new(icol, 50))
                 if not na(g.ce)
                     line.set_color(g.ce, color.new(icol, 20))
+                if wantLabel(true)
+                    if na(g.lb)
+                        g.lb := label.new(bar_index + 4, math.avg(g.top, g.btm), "IFVG",
+                             style = label.style_none, textcolor = fvgLabelCol, size = size.tiny)
+                    else
+                        label.set_text(g.lb, "IFVG")
+                else
+                    label.delete(g.lb)
+                    g.lb := na
                 newIFVG := true
             else
                 box.delete(g.bx)
                 if not na(g.ce)
                     line.delete(g.ce)
+                label.delete(g.lb)
                 array.remove(gaps, i)
         else
             box.set_right(g.bx, bar_index + 1)
             if not na(g.ce)
                 line.set_x2(g.ce, bar_index + 1)
+            if not na(g.lb)
+                label.set_xy(g.lb, bar_index + 4, math.avg(g.top, g.btm))
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 2) CISD — Change In State of Delivery
@@ -208,16 +271,19 @@ live = cisdConfirm ? barstate.isconfirmed : true
 bullCISD = cisdShow and live and not bearRunUsed and not na(bearRunOpen) and bearRunLen >= cisdMinRun and close > bearRunOpen
 bearCISD = cisdShow and live and not bullRunUsed and not na(bullRunOpen) and bullRunLen >= cisdMinRun and close < bullRunOpen
 
+markCISD(float lvlPrice, int fromBar, color col) =>
+    line.new(fromBar, lvlPrice, bar_index + cisdExtend, lvlPrice, color = col,
+         width = cisdWidth, style = lineStyle(cisdStyle))
+    if cisdLabels
+        label.new(bar_index + cisdExtend + 3, lvlPrice, "CISD", style = label.style_none,
+             textcolor = col, size = size.tiny)
+
 if bullCISD
     bearRunUsed := true
-    line.new(bearRunBar, bearRunOpen, bar_index + cisdExtend, bearRunOpen, color = cisdBullCol, width = 2)
-    label.new(bar_index, bearRunOpen, "CISD", style = label.style_label_up, color = color.new(cisdBullCol, 20),
-         textcolor = color.white, size = size.tiny)
+    markCISD(bearRunOpen, bearRunBar, cisdBullCol)
 if bearCISD
     bullRunUsed := true
-    line.new(bullRunBar, bullRunOpen, bar_index + cisdExtend, bullRunOpen, color = cisdBearCol, width = 2)
-    label.new(bar_index, bullRunOpen, "CISD", style = label.style_label_down, color = color.new(cisdBearCol, 20),
-         textcolor = color.white, size = size.tiny)
+    markCISD(bullRunOpen, bullRunBar, cisdBearCol)
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 3) SMT divergence
@@ -243,19 +309,24 @@ smtScan(float pivVal, float corrVal, bool isHigh, bool enabled, string tag, colo
             bool corrHigher  = corrVal > prevCorr
             if chartHigher != corrHigher
                 sig := true
-                line.new(prevBar, prevPiv, curBar, pivVal, color = col, width = 2, style = line.style_dashed)
-                label.new(curBar, pivVal, tag,
-                     style = isHigh ? label.style_label_down : label.style_label_up,
-                     color = color.new(col, 15), textcolor = color.white, size = size.tiny)
+                line.new(prevBar, prevPiv, curBar, pivVal, color = col,
+                     width = smtWidth, style = lineStyle(smtStyle))
+                float pad = nz(atr200, 0) * 0.5
+                label.new(math.round(math.avg(prevBar, curBar)),
+                     isHigh ? math.max(prevPiv, pivVal) + pad : math.min(prevPiv, pivVal) - pad,
+                     tag, style = label.style_none, textcolor = col, size = size.tiny)
         prevPiv  := pivVal
         prevCorr := corrVal
         prevBar  := curBar
     sig
 
-smtBear1 = smtScan(phv, c1h[smtPiv], true,  smtShow and smt1On, "SMT", smtBearCol)
-smtBull1 = smtScan(plv, c1l[smtPiv], false, smtShow and smt1On, "SMT", smtBullCol)
-smtBear2 = smtScan(phv, c2h[smtPiv], true,  smtShow and smt2On, "SMT²", smtBearCol)
-smtBull2 = smtScan(plv, c2l[smtPiv], false, smtShow and smt2On, "SMT²", smtBullCol)
+smtHiCol = smtAutoCol ? chart.fg_color : smtBearCol
+smtLoCol = smtAutoCol ? chart.fg_color : smtBullCol
+
+smtBear1 = smtScan(phv, c1h[smtPiv], true,  smtShow and smt1On, "SMT", smtHiCol)
+smtBull1 = smtScan(plv, c1l[smtPiv], false, smtShow and smt1On, "SMT", smtLoCol)
+smtBear2 = smtScan(phv, c2h[smtPiv], true,  smtShow and smt2On, "SMT²", smtHiCol)
+smtBull2 = smtScan(plv, c2l[smtPiv], false, smtShow and smt2On, "SMT²", smtLoCol)
 
 smtBearSig = smtBear1 or smtBear2
 smtBullSig = smtBull1 or smtBull2
@@ -275,10 +346,14 @@ drawSession(bool en, string sess, color col, string nm) =>
         hi := high
         lo := low
         bx := box.new(bar_index, high, bar_index, low, border_color = color.new(col, 40),
-             bgcolor = color.new(col, 92), text = nm, text_size = size.tiny, text_color = color.new(col, 25))
+             border_width = sesBoxWidth, border_style = lineStyle(sesBoxStyle),
+             bgcolor = color.new(col, sesFillTr), text = nm, text_size = size.tiny,
+             text_color = color.new(col, 25))
         if sesLines
-            lhi := line.new(bar_index, high, bar_index, high, color = col, style = line.style_dotted)
-            llo := line.new(bar_index, low,  bar_index, low,  color = col, style = line.style_dotted)
+            lhi := line.new(bar_index, high, bar_index, high, color = col,
+                 style = lineStyle(sesLineStyle), width = sesLineWidth)
+            llo := line.new(bar_index, low,  bar_index, low,  color = col,
+                 style = lineStyle(sesLineStyle), width = sesLineWidth)
     else if inSess
         hi := math.max(hi, high)
         lo := math.min(lo, low)
@@ -323,12 +398,12 @@ lvl(bool en, float price, int fromBar, color col, string txt, string st, int lw)
             label.set_text(lb, txt)
     ln
 
-lvl(pdOn, pdhV, dStart, pdCol, htfLabels ? "PDH" : "", line.style_solid,  1)
-lvl(pdOn, pdlV, dStart, pdCol, htfLabels ? "PDL" : "", line.style_solid,  1)
-lvl(pwOn, pwhV, wStart, pwCol, htfLabels ? "PWH" : "", line.style_dashed, 1)
-lvl(pwOn, pwlV, wStart, pwCol, htfLabels ? "PWL" : "", line.style_dashed, 1)
-lvl(pmOn, pmhV, mStart, pmCol, htfLabels ? "PMH" : "", line.style_dotted, 2)
-lvl(pmOn, pmlV, mStart, pmCol, htfLabels ? "PML" : "", line.style_dotted, 2)
+lvl(pdOn, pdhV, dStart, pdCol, htfLabels ? "PDH" : "", lineStyle(pdStyle), pdWidth)
+lvl(pdOn, pdlV, dStart, pdCol, htfLabels ? "PDL" : "", lineStyle(pdStyle), pdWidth)
+lvl(pwOn, pwhV, wStart, pwCol, htfLabels ? "PWH" : "", lineStyle(pwStyle), pwWidth)
+lvl(pwOn, pwlV, wStart, pwCol, htfLabels ? "PWL" : "", lineStyle(pwStyle), pwWidth)
+lvl(pmOn, pmhV, mStart, pmCol, htfLabels ? "PMH" : "", lineStyle(pmStyle), pmWidth)
+lvl(pmOn, pmlV, mStart, pmCol, htfLabels ? "PML" : "", lineStyle(pmStyle), pmWidth)
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 6) PD arrays — premium / discount / equilibrium / OTE
@@ -360,15 +435,22 @@ rStart = switch pdaRange
 
 fib(float f) => na(rHi) or na(rLo) ? float(na) : rLo + (rHi - rLo) * f
 
-lvl(pdaOn,                   fib(1.000), rStart, pdaCol, "Premium 1.0",  line.style_solid,  1)
-lvl(pdaOn and not pdaOTEonly, fib(0.790), rStart, pdaCol, "0.79",        line.style_dotted, 1)
-lvl(pdaOn,                   fib(0.705), rStart, pdaCol, "OTE 0.705",    line.style_dashed, 1)
-lvl(pdaOn and not pdaOTEonly, fib(0.618), rStart, pdaCol, "0.618",       line.style_dotted, 1)
-lvl(pdaOn,                   fib(0.500), rStart, pdaCol, "EQ 0.5",       line.style_solid,  2)
-lvl(pdaOn and not pdaOTEonly, fib(0.382), rStart, pdaCol, "0.382",       line.style_dotted, 1)
-lvl(pdaOn,                   fib(0.295), rStart, pdaCol, "OTE 0.295",    line.style_dashed, 1)
-lvl(pdaOn and not pdaOTEonly, fib(0.210), rStart, pdaCol, "0.21",        line.style_dotted, 1)
-lvl(pdaOn,                   fib(0.000), rStart, pdaCol, "Discount 0.0", line.style_solid,  1)
+pdaTxt(string t) => pdaLabels ? t : ""
+bndS = lineStyle(pdaBndStyle)
+eqS  = lineStyle(pdaEqStyle)
+oteS = lineStyle(pdaOteStyle)
+subS = lineStyle(pdaSubStyle)
+pdaSub = pdaOn and not pdaOTEonly
+
+lvl(pdaOn, fib(1.000), rStart, pdaBndCol, pdaTxt("Premium 1.0"),  bndS, pdaBndWidth)
+lvl(pdaSub, fib(0.790), rStart, pdaSubCol, pdaTxt("0.79"),        subS, pdaSubWidth)
+lvl(pdaOn, fib(0.705), rStart, pdaOteCol, pdaTxt("OTE 0.705"),    oteS, pdaOteWidth)
+lvl(pdaSub, fib(0.618), rStart, pdaSubCol, pdaTxt("0.618"),       subS, pdaSubWidth)
+lvl(pdaOn, fib(0.500), rStart, pdaEqCol,  pdaTxt("EQ 0.5"),       eqS,  pdaEqWidth)
+lvl(pdaSub, fib(0.382), rStart, pdaSubCol, pdaTxt("0.382"),       subS, pdaSubWidth)
+lvl(pdaOn, fib(0.295), rStart, pdaOteCol, pdaTxt("OTE 0.295"),    oteS, pdaOteWidth)
+lvl(pdaSub, fib(0.210), rStart, pdaSubCol, pdaTxt("0.21"),        subS, pdaSubWidth)
+lvl(pdaOn, fib(0.000), rStart, pdaBndCol, pdaTxt("Discount 0.0"), bndS, pdaBndWidth)
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Alerts
