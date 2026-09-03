@@ -88,6 +88,9 @@ So a subtitle of `{ticker} · {tf}` renders as `NQ1! · 5m`, and an extra line o
 - **Element layout** — *Stacked* puts each element on its own table row (so the
   symbol can be rendered larger); *Inline* joins them all into one row with a
   configurable separator.
+- **Element order** — a comma-separated key list: `text, symbol, exchange, tf,
+  date, time, price, change, countdown`. Reorder it or drop keys from it, e.g.
+  `date,symbol,tf` puts the date on the top row.
 - **Render the symbol one size larger** — the symbol gets bumped one step above
   the panel's text size (`small` → `normal`, and so on).
 - **Timeframe suffix** — defaults to `" TIMEFRAME"`, giving `5m TIMEFRAME`.
@@ -95,6 +98,15 @@ So a subtitle of `{ticker} · {tf}` renders as `NQ1! · 5m`, and an extra line o
 - **Symbol format** — ticker, exchange + ticker, full ticker ID, or the
   instrument's description.
 - Timeframes print as `30s` / `5m` / `4H` / `1D` / `1W` / `3M`.
+
+## Reproducing the two originals
+
+- *AG FX watermark* — title + subtitle at `top · center`, symbol info at
+  `bottom · center` with **Element order** `date,text`, **Text?** on and
+  **Info text** `{symbol} | {tf}`, date format `d/M/yyyy`.
+- *toodegrees quote / info* — quote panel on, symbol info at `top · right`,
+  size `small`, **Element order** `text,symbol,tf`, timeframe suffix
+  `" TIMEFRAME"`, *Render the symbol one size larger* on.
 
 ## Notes
 

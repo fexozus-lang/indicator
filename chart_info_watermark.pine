@@ -82,7 +82,7 @@ gShow    = input.bool(true, "Enable indicator", group = G_GL)
 gFont    = input.string("Default", "Font", options = ["Default", "Monospace"], group = G_GL)
 gTzMode  = input.string("Exchange", "Timezone", options = ["Exchange", "UTC", "Custom"], group = G_GL, inline = "tz")
 gTzCust  = input.string("America/New_York", "", group = G_GL, inline = "tz")
-gDateFmt = input.string("yyyy-MM-dd", "Date format", options = ["yyyy-MM-dd", "dd-MM-yyyy", "MM/dd/yyyy", "dd MMM yyyy", "EEE dd MMM", "EEE dd MMM yyyy"], group = G_GL)
+gDateFmt = input.string("yyyy-MM-dd", "Date format", options = ["yyyy-MM-dd", "dd-MM-yyyy", "d/M/yyyy", "MM/dd/yyyy", "dd MMM yyyy", "EEE dd MMM", "EEE dd MMM yyyy"], group = G_GL)
 gTimeFmt = input.string("HH:mm", "Time format", options = ["HH:mm", "HH:mm:ss", "hh:mm a"], group = G_GL)
 gClock   = input.string("Last bar", "Date / time source", options = ["Last bar", "Now"], group = G_GL, tooltip = "Last bar = the open time of the most recent bar. Now = the current wall-clock time, refreshed on every tick.")
 gGrid    = input.bool(false, "Separator lines between stacked rows", group = G_GL, tooltip = "Draws the panel's border colour between rows that sit at the same screen position.")
@@ -102,12 +102,13 @@ wmOrd    = input.int(0, "Stack order", minval = 0, maxval = 9, group = G_WM, too
 
 wmTitle  = input.string("TITLE", "Title",    group = G_WM, inline = "wt", tooltip = TT_PH)
 wmTitCol = input.color(color.new(color.gray, 55), "", group = G_WM, inline = "wt")
-wmTitSz  = input.string("huge", "",  options = ["auto", "tiny", "small", "normal", "large", "huge"], group = G_WM, inline = "wt")
+wmTitSz  = input.string("large", "",  options = ["auto", "tiny", "small", "normal", "large", "huge"], group = G_WM, inline = "wt")
 wmSub    = input.string("", "Subtitle",      group = G_WM, inline = "ws", tooltip = TT_PH)
 wmSubCol = input.color(color.new(color.gray, 65), "", group = G_WM, inline = "ws")
-wmSubSz  = input.string("large", "", options = ["auto", "tiny", "small", "normal", "large", "huge"], group = G_WM, inline = "ws")
-wmAlign  = input.string(H_C, "Text align", options = [H_L, H_C, H_R], group = G_WM, inline = "wa")
-wmVAlign = input.string(V_M, "",           options = [V_T, V_M, V_B], group = G_WM, inline = "wa")
+wmSubSz  = input.string("normal", "", options = ["auto", "tiny", "small", "normal", "large", "huge"], group = G_WM, inline = "ws")
+wmTitAl  = input.string(H_C, "Title align",    options = [H_L, H_C, H_R], group = G_WM, inline = "wa")
+wmSubAl  = input.string(H_C, "Subtitle align", options = [H_L, H_C, H_R], group = G_WM, inline = "wa")
+wmVAlign = input.string(V_M, "Vertical align", options = [V_T, V_M, V_B], group = G_WM)
 
 // ── Quote ──
 qtShow   = input.bool(false, "Show?",        group = G_QT, inline = "q1")
@@ -154,6 +155,7 @@ siOnCd   = input.bool(false, "Countdown?", group = G_SI, inline = "e3", tooltip 
 siSymFmt = input.string("Ticker", "Symbol format", options = ["Ticker", "Exchange + ticker", "Full ticker ID", "Description"], group = G_SI)
 siBigSym = input.bool(true, "Render the symbol one size larger", group = G_SI)
 siTfSufx = input.string(" TIMEFRAME", "Timeframe suffix", group = G_SI, tooltip = "Appended after the timeframe, e.g. \"5m TIMEFRAME\". Leave empty for just \"5m\".")
+siOrder  = input.string("text,symbol,exchange,tf,date,time,price,change,countdown", "Element order", group = G_SI, tooltip = "Comma-separated keys, drawn in this order. Valid keys: text, symbol, exchange, tf, date, time, price, change, countdown. Drop a key to hide it, or move it to reorder — e.g. \"date,symbol,tf\" puts the date on top.")
 siLayout = input.string("Stacked", "Element layout", options = ["Stacked", "Inline"], group = G_SI, inline = "lay", tooltip = "Stacked = one table row per element. Inline = a single row, elements joined by the separator.")
 siSep    = input.string(" · ", "", group = G_SI, inline = "lay", tooltip = "Separator used when the layout is Inline.")
 siText   = input.text_area("", "Info text", group = G_SI, tooltip = TT_PH)
@@ -285,9 +287,9 @@ if barstate.islast
         color wmFCol = wmNoBrd ? color.new(color.black, 100) : wmBrdCol
         int   wmFW   = wmNoBrd ? 0 : wmBrdW
         if wmShow and str.length(wmTitle) > 0
-            array.push(ls, Ln.new(wmPi, wmOrd, f_expand(wmTitle), wmTitCol, wmBg, f_size(wmTitSz), f_ha(wmAlign), f_va(wmVAlign), wmW, wmH_, wmFCol, wmFW))
+            array.push(ls, Ln.new(wmPi, wmOrd, f_expand(wmTitle), wmTitCol, wmBg, f_size(wmTitSz), f_ha(wmTitAl), f_va(wmVAlign), wmW, wmH_, wmFCol, wmFW))
         if wmShow and str.length(wmSub) > 0
-            array.push(ls, Ln.new(wmPi, wmOrd, f_expand(wmSub), wmSubCol, wmBg, f_size(wmSubSz), f_ha(wmAlign), f_va(wmVAlign), wmW, wmH_, wmFCol, wmFW))
+            array.push(ls, Ln.new(wmPi, wmOrd, f_expand(wmSub), wmSubCol, wmBg, f_size(wmSubSz), f_ha(wmSubAl), f_va(wmVAlign), wmW, wmH_, wmFCol, wmFW))
 
         // Quote ───────────────────────────────────────────────────────────────
         if qtShow and str.length(qtText) > 0
@@ -301,33 +303,34 @@ if barstate.islast
             int   siFW   = siNoBrd ? 0 : siBrdW
             array<string> parts = array.new<string>()   // element text
             array<string> psz   = array.new<string>()   // element text size
-            if siOnText and str.length(siText) > 0
-                array.push(parts, f_expand(siText))
-                array.push(psz, siSz)
-            if siOnSym
-                array.push(parts, symStr)
-                array.push(psz, siBigSym ? f_bump(siSz) : siSz)
-            if siOnExch
-                array.push(parts, syminfo.exchange)
-                array.push(psz, siSz)
-            if siOnTf
-                array.push(parts, tfStr + siTfSufx)
-                array.push(psz, siSz)
-            if siOnDate
-                array.push(parts, dateStr)
-                array.push(psz, siSz)
-            if siOnTime
-                array.push(parts, timeStr)
-                array.push(psz, siSz)
-            if siOnPx
-                array.push(parts, priceStr)
-                array.push(psz, siSz)
-            if siOnChg
-                array.push(parts, chgStr)
-                array.push(psz, siSz)
-            if siOnCd
-                array.push(parts, cdStr)
-                array.push(psz, siSz)
+            array<string> keys  = str.split(str.replace_all(str.lower(siOrder), " ", ""), ",")
+            if array.size(keys) > 0
+                for ki = 0 to array.size(keys) - 1
+                    string k = array.get(keys, ki)
+                    string v = ""
+                    string z = siSz
+                    if k == "text" and siOnText and str.length(siText) > 0
+                        v := f_expand(siText)
+                    else if k == "symbol" and siOnSym
+                        v := symStr
+                        z := siBigSym ? f_bump(siSz) : siSz
+                    else if k == "exchange" and siOnExch
+                        v := syminfo.exchange
+                    else if k == "tf" and siOnTf
+                        v := tfStr + siTfSufx
+                    else if k == "date" and siOnDate
+                        v := dateStr
+                    else if k == "time" and siOnTime
+                        v := timeStr
+                    else if k == "price" and siOnPx
+                        v := priceStr
+                    else if k == "change" and siOnChg
+                        v := chgStr
+                    else if k == "countdown" and siOnCd
+                        v := cdStr
+                    if str.length(v) > 0
+                        array.push(parts, v)
+                        array.push(psz, z)
 
             if siLayout == "Inline"
                 string siTxt = f_join(parts, false, siSep)
@@ -335,8 +338,8 @@ if barstate.islast
                     array.push(ls, Ln.new(siPi, siOrd, siTxt, siCol, siBg, f_size(siSz), f_ha(siAlign), f_va(siVAlign), siW, siH_, siFCol, siFW))
             else if array.size(parts) > 0
                 // one table row per element, so each can carry its own text size
-                for k = 0 to array.size(parts) - 1
-                    array.push(ls, Ln.new(siPi, siOrd, array.get(parts, k), siCol, siBg, f_size(array.get(psz, k)), f_ha(siAlign), f_va(siVAlign), siW, siH_, siFCol, siFW))
+                for r = 0 to array.size(parts) - 1
+                    array.push(ls, Ln.new(siPi, siOrd, array.get(parts, r), siCol, siBg, f_size(array.get(psz, r)), f_ha(siAlign), f_va(siVAlign), siW, siH_, siFCol, siFW))
 
         // Extra lines ─────────────────────────────────────────────────────────
         if x1Show and str.length(x1Text) > 0
