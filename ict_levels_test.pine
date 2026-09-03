@@ -1,0 +1,199 @@
+//@version=6
+// ICT Levels — diagnostic build.
+// Sessions + previous D/W/M + PD arrays only. No FVG, no CISD, no SMT.
+// Levels use plot() rather than line objects, so they cannot be evicted by
+// TradingView's 500-drawing cap and cannot be hidden off-screen.
+indicator("ICT Levels (test)", shorttitle = "ICT Levels", overlay = true,
+     max_boxes_count = 500, max_lines_count = 500, max_bars_back = 1000)
+
+const string G_SES = "Sessions"
+const string G_HTF = "Previous D / W / M"
+const string G_PD  = "PD Array"
+const string G_GEN = "Dashboard"
+
+// ── Sessions ─────────────────────────────────────────────────────────────────
+sesShow   = input.bool(true, "Show sessions",           group = G_SES)
+sesTz     = input.string("America/New_York", "Timezone", group = G_SES)
+sesKeep   = input.int(10, "Sessions kept per type",     group = G_SES, minval = 1, maxval = 50)
+sesFillTr = input.int(85, "Fill transparency",          group = G_SES, minval = 0, maxval = 100)
+sesLines  = input.bool(true, "Extend session high/low", group = G_SES)
+
+s1On = input.bool(true, "Asia",   group = G_SES, inline = "a")
+s1T  = input.session("2000-0000", "", group = G_SES, inline = "a")
+s1C  = input.color(#9c27b0, "",       group = G_SES, inline = "a")
+s2On = input.bool(true, "London", group = G_SES, inline = "b")
+s2T  = input.session("0200-0500", "", group = G_SES, inline = "b")
+s2C  = input.color(#2962ff, "",       group = G_SES, inline = "b")
+s3On = input.bool(true, "NY AM",  group = G_SES, inline = "c")
+s3T  = input.session("0930-1100", "", group = G_SES, inline = "c")
+s3C  = input.color(#ff9800, "",       group = G_SES, inline = "c")
+s4On = input.bool(true, "NY PM",  group = G_SES, inline = "d")
+s4T  = input.session("1330-1600", "", group = G_SES, inline = "d")
+s4C  = input.color(#607d8b, "",       group = G_SES, inline = "d")
+
+// ── Previous D / W / M ───────────────────────────────────────────────────────
+pdOn  = input.bool(true,  "Prev Day H/L",   group = G_HTF, inline = "h1")
+pdC   = input.color(#787b86, "",            group = G_HTF, inline = "h1")
+pdW   = input.int(1, "W",                   group = G_HTF, inline = "h1", minval = 1, maxval = 4)
+pwOn  = input.bool(true,  "Prev Week H/L",  group = G_HTF, inline = "h2")
+pwC   = input.color(#2962ff, "",            group = G_HTF, inline = "h2")
+pwW   = input.int(1, "W",                   group = G_HTF, inline = "h2", minval = 1, maxval = 4)
+pmOn  = input.bool(false, "Prev Month H/L", group = G_HTF, inline = "h3")
+pmC   = input.color(#9c27b0, "",            group = G_HTF, inline = "h3")
+pmW   = input.int(2, "W",                   group = G_HTF, inline = "h3", minval = 1, maxval = 4)
+
+// ── PD array ─────────────────────────────────────────────────────────────────
+pdaOn    = input.bool(true, "Show PD array", group = G_PD)
+pdaRange = input.string("Previous Day", "Range",
+     options = ["Previous Day", "Previous Week", "Previous Month", "Current Day"], group = G_PD)
+pdaBndC  = input.color(#787b86, "Boundary 0.0 / 1.0", group = G_PD)
+pdaEqC   = input.color(#f23645, "Equilibrium 0.5",    group = G_PD)
+pdaOteC  = input.color(#089981, "OTE 0.705 / 0.295",  group = G_PD)
+pdaSubOn = input.bool(true, "Show 0.618 / 0.382",     group = G_PD, inline = "ps")
+pdaSubC  = input.color(#b2b5be, "",                   group = G_PD, inline = "ps")
+
+// ── Dashboard ────────────────────────────────────────────────────────────────
+dashOn     = input.bool(true, "Show status table", group = G_GEN)
+dashPos    = input.string("Bottom right", "Position",
+     options = ["Bottom right", "Bottom left", "Top right", "Top left"], group = G_GEN)
+dashTxtCol = input.color(#e0e3eb, "Text",       group = G_GEN, inline = "d")
+dashBgCol  = input.color(#1e222d, "Background", group = G_GEN, inline = "d")
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Sessions
+// ═════════════════════════════════════════════════════════════════════════════
+// "Am I in the session" and "did it just start" are computed at GLOBAL scope.
+// Referencing [1] on a variable local to a function is what makes Pine unable
+// to size its history buffer, so it is deliberately avoided here.
+inA = sesShow and s1On and not na(time(timeframe.period, s1T, sesTz))
+inL = sesShow and s2On and not na(time(timeframe.period, s2T, sesTz))
+inM = sesShow and s3On and not na(time(timeframe.period, s3T, sesTz))
+inP = sesShow and s4On and not na(time(timeframe.period, s4T, sesTz))
+
+newA = inA and not inA[1]
+newL = inL and not inL[1]
+newM = inM and not inM[1]
+newP = inP and not inP[1]
+
+sessDraw(bool active, bool isNew, color col, string nm) =>
+    var array<box>  bxs = array.new<box>()
+    var array<line> lns = array.new<line>()
+    var box   bx = na
+    var line  lh = na
+    var line  ll = na
+    var float hi = na
+    var float lo = na
+    if isNew
+        hi := high
+        lo := low
+        bx := box.new(bar_index, high, bar_index, low, border_color = color.new(col, 40),
+             bgcolor = color.new(col, sesFillTr), text = nm, text_size = size.tiny,
+             text_color = color.new(col, 25))
+        array.push(bxs, bx)
+        if array.size(bxs) > sesKeep
+            box.delete(array.shift(bxs))
+        if sesLines
+            lh := line.new(bar_index, high, bar_index, high, color = col, style = line.style_dotted)
+            ll := line.new(bar_index, low,  bar_index, low,  color = col, style = line.style_dotted)
+            array.push(lns, lh)
+            array.push(lns, ll)
+            if array.size(lns) > sesKeep * 2
+                line.delete(array.shift(lns))
+                line.delete(array.shift(lns))
+    else if active and not na(bx)
+        hi := math.max(hi, high)
+        lo := math.min(lo, low)
+        box.set_top(bx, hi)
+        box.set_bottom(bx, lo)
+        box.set_right(bx, bar_index)
+        if not na(lh)
+            line.set_xy1(lh, bar_index, hi)
+            line.set_xy2(lh, bar_index, hi)
+            line.set_xy1(ll, bar_index, lo)
+            line.set_xy2(ll, bar_index, lo)
+    else if not na(lh)
+        line.set_x2(lh, bar_index)
+        line.set_x2(ll, bar_index)
+    active
+
+sessDraw(inA, newA, s1C, "Asia")
+sessDraw(inL, newL, s2C, "London")
+sessDraw(inM, newM, s3C, "NY AM")
+sessDraw(inP, newP, s4C, "NY PM")
+
+activeSes = inA ? "Asia" : inL ? "London" : inM ? "NY AM" : inP ? "NY PM" : "—"
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Previous D / W / M
+// ═════════════════════════════════════════════════════════════════════════════
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+plot(pdOn ? pdh : na, "PDH", color = pdC, linewidth = pdW, style = plot.style_linebr)
+plot(pdOn ? pdl : na, "PDL", color = pdC, linewidth = pdW, style = plot.style_linebr)
+plot(pwOn ? pwh : na, "PWH", color = pwC, linewidth = pwW, style = plot.style_linebr)
+plot(pwOn ? pwl : na, "PWL", color = pwC, linewidth = pwW, style = plot.style_linebr)
+plot(pmOn ? pmh : na, "PMH", color = pmC, linewidth = pmW, style = plot.style_linebr)
+plot(pmOn ? pml : na, "PML", color = pmC, linewidth = pmW, style = plot.style_linebr)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PD array
+// ═════════════════════════════════════════════════════════════════════════════
+var float dayHi = na
+var float dayLo = na
+if timeframe.change("D")
+    dayHi := high
+    dayLo := low
+else
+    dayHi := math.max(nz(dayHi, high), high)
+    dayLo := math.min(nz(dayLo, low),  low)
+
+rHi = switch pdaRange
+    "Previous Day"   => pdh
+    "Previous Week"  => pwh
+    "Previous Month" => pmh
+    => dayHi
+rLo = switch pdaRange
+    "Previous Day"   => pdl
+    "Previous Week"  => pwl
+    "Previous Month" => pml
+    => dayLo
+
+fib(float f) => na(rHi) or na(rLo) ? float(na) : rLo + (rHi - rLo) * f
+
+plot(pdaOn                ? fib(1.000) : na, "Premium 1.0",  color = pdaBndC, style = plot.style_linebr)
+plot(pdaOn                ? fib(0.705) : na, "OTE 0.705",    color = pdaOteC, style = plot.style_linebr)
+plot(pdaOn and pdaSubOn   ? fib(0.618) : na, "0.618",        color = pdaSubC, style = plot.style_linebr)
+plot(pdaOn                ? fib(0.500) : na, "EQ 0.5",       color = pdaEqC,  style = plot.style_linebr, linewidth = 2)
+plot(pdaOn and pdaSubOn   ? fib(0.382) : na, "0.382",        color = pdaSubC, style = plot.style_linebr)
+plot(pdaOn                ? fib(0.295) : na, "OTE 0.295",    color = pdaOteC, style = plot.style_linebr)
+plot(pdaOn                ? fib(0.000) : na, "Discount 0.0", color = pdaBndC, style = plot.style_linebr)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Status table
+// ═════════════════════════════════════════════════════════════════════════════
+tblPos = switch dashPos
+    "Bottom left" => position.bottom_left
+    "Top right"   => position.top_right
+    "Top left"    => position.top_left
+    => position.bottom_right
+
+var table dash = table.new(tblPos, 2, 6, border_width = 1)
+
+dashRow(int r, string k, string v) =>
+    table.cell(dash, 0, r, k, text_color = dashTxtCol, text_size = size.tiny,
+         text_halign = text.align_left,  bgcolor = dashBgCol)
+    table.cell(dash, 1, r, v, text_color = dashTxtCol, text_size = size.tiny,
+         text_halign = text.align_right, bgcolor = dashBgCol)
+
+px(float v) => na(v) ? "—" : str.tostring(v, format.mintick)
+
+if dashOn and barstate.islast
+    float eq = fib(0.5)
+    dashRow(0, "ICT LEVELS", timeframe.period)
+    dashRow(1, "Bars",       str.tostring(bar_index + 1))
+    dashRow(2, "Session",    activeSes)
+    dashRow(3, "PDH / PDL",  px(pdh) + " / " + px(pdl))
+    dashRow(4, "PWH / PWL",  px(pwh) + " / " + px(pwl))
+    dashRow(5, "PD bias",    na(eq) ? "—" : close > eq ? "Premium" : close < eq ? "Discount" : "EQ")
