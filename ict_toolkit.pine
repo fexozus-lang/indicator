@@ -1,17 +1,46 @@
 //@version=6
+// This work is licensed under Attribution-NonCommercial-ShareAlike 4.0
+// International (CC BY-NC-SA 4.0) — https://creativecommons.org/licenses/by-nc-sa/4.0/
+//
+// The Fair Value Gap module is adapted from "Fair Value Gap [LuxAlgo]" © LuxAlgo,
+// published under CC BY-NC-SA 4.0. That licence is ShareAlike, so this combined
+// script inherits it: the attribution above must be kept, the work must stay under
+// the same licence, and it may not be used commercially.
+//
 // ICT Toolkit — incremental build. Verified working so far:
-//   sessions, previous D/W/M, PD arrays, SMT divergence.   Still to add: CISD.
+//   sessions, previous D/W/M, PD arrays, SMT divergence, FVG.   To add: CISD.
 // Levels use plot() rather than line objects, so they cannot be evicted by
 // TradingView's 500-drawing cap and cannot be hidden off-screen.
 indicator("ICT Toolkit (build)", shorttitle = "ICT Build", overlay = true,
      max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500,
      max_bars_back = 1000)
 
+const string G_FVG = "Fair Value Gaps (LuxAlgo)"
 const string G_SES = "Sessions"
 const string G_HTF = "Previous D / W / M"
 const string G_PD  = "PD Array"
 const string G_SMT = "SMT Divergence"
 const string G_GEN = "Dashboard"
+
+// ── Fair Value Gaps ──────────────────────────────────────────────────────────
+fvgShow     = input.bool(true, "Show FVG",              group = G_FVG)
+fvgThresh   = input.float(0, "Threshold %", minval = 0, maxval = 100, step = .1, group = G_FVG, inline = "th")
+fvgAuto     = input.bool(false, "Auto",                 group = G_FVG, inline = "th", tooltip = "Auto uses the running average of (high-low)/low as the minimum gap size.")
+fvgShowLast = input.int(0, "Unmitigated levels", minval = 0, group = G_FVG, tooltip = "Draw a level at the edge of the N most recent unmitigated gaps. 0 = off.")
+fvgMitLines = input.bool(false, "Mitigation levels",    group = G_FVG, tooltip = "Leave a line behind at the edge of each gap as it is mitigated.")
+fvgTf       = input.timeframe("", "Timeframe",          group = G_FVG, tooltip = "Blank = chart timeframe. Set higher to overlay HTF gaps.")
+fvgExt      = input.int(20, "Extend", minval = 0,       group = G_FVG, inline = "ex")
+fvgDynamic  = input.bool(false, "Dynamic",              group = G_FVG, inline = "ex", tooltip = "Dynamic shows only the newest gap in each direction, shrinking as price fills it, instead of drawing every gap as a box.")
+fvgMaxKeep  = input.int(100, "Max gaps kept", minval = 1, maxval = 400, group = G_FVG)
+fvgBordOn   = input.bool(false, "Zone border",          group = G_FVG, inline = "fb")
+fvgBordSt   = input.string("Solid", "", options = ["Solid", "Dashed", "Dotted"], group = G_FVG, inline = "fb")
+fvgBordW    = input.int(1, "W",                         group = G_FVG, inline = "fb", minval = 1, maxval = 4)
+fvgMitSt    = input.string("Dashed", "Mitigation line", options = ["Solid", "Dashed", "Dotted"], group = G_FVG, inline = "fm")
+fvgMitW     = input.int(1, "W",                         group = G_FVG, inline = "fm", minval = 1, maxval = 4)
+fvgUnmSt    = input.string("Solid", "Unmitigated line", options = ["Solid", "Dashed", "Dotted"], group = G_FVG, inline = "fu")
+fvgUnmW     = input.int(1, "W",                         group = G_FVG, inline = "fu", minval = 1, maxval = 4)
+bullCss     = input.color(color.new(#089981, 70), "Bullish FVG", group = G_FVG)
+bearCss     = input.color(color.new(#f23645, 70), "Bearish FVG", group = G_FVG)
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
 sesShow   = input.bool(true, "Show sessions",           group = G_SES)
@@ -203,6 +232,143 @@ sessDraw(inP, newP, s4C, "NY PM")
 activeSes = inA ? "Asia" : inL ? "London" : inM ? "NY AM" : inP ? "NY PM" : "—"
 
 // ═════════════════════════════════════════════════════════════════════════════
+// Fair Value Gaps
+// ═════════════════════════════════════════════════════════════════════════════
+// Adapted from "Fair Value Gap [LuxAlgo]" © LuxAlgo, CC BY-NC-SA 4.0.
+// The detection (threshold / auto sizing), the dynamic single-zone mode, and the
+// mitigation and unmitigated level treatments are LuxAlgo's design. Changes here:
+// identifiers renamed to avoid clashing with the rest of this script (notably
+// `extend`, a Pine namespace the session lines use), the stats folded into this
+// script's own status table, style inputs added, and the record list capped so
+// gap boxes cannot evict other modules' drawings.
+type fvg
+    float max
+    float min
+    bool  isbull
+    int   t = time
+
+method tosolid(color id) => color.rgb(color.r(id), color.g(id), color.b(id))
+
+fvgDetect() =>
+    var fvg found = fvg.new(na, na, na, na)
+    threshold = fvgAuto ? ta.cum((high - low) / low) / bar_index : fvgThresh / 100
+
+    bull = low > high[2] and close[1] > high[2] and (low - high[2]) / high[2] > threshold
+    bear = high < low[2] and close[1] < low[2] and (low[2] - high) / high > threshold
+
+    if bull
+        found := fvg.new(low, high[2], true)
+    else if bear
+        found := fvg.new(low[2], high, false)
+
+    [bull, bear, found]
+
+var float maxBullFvg    = na
+var float minBullFvg    = na
+var float maxBearFvg    = na
+var float minBearFvg    = na
+var int   bullCount     = 0
+var int   bearCount     = 0
+var int   bullMitigated = 0
+var int   bearMitigated = 0
+var int   lastFvgT      = 0
+
+var array<fvg> fvgRecords = array.new<fvg>(0)
+var array<box> fvgAreas   = array.new<box>(0)
+
+[bullFvg, bearFvg, newFvg] = request.security(syminfo.tickerid, fvgTf, fvgDetect())
+
+if fvgShow
+    // Bullish
+    if bullFvg and newFvg.t != lastFvgT
+        if fvgDynamic
+            maxBullFvg := newFvg.max
+            minBullFvg := newFvg.min
+        else
+            fvgAreas.unshift(box.new(bar_index - 2, newFvg.max, bar_index + fvgExt, newFvg.min,
+                 border_color = fvgBordOn ? bullCss.tosolid() : na,
+                 border_width = fvgBordW, border_style = lineStyle(fvgBordSt), bgcolor = bullCss))
+        fvgRecords.unshift(newFvg)
+        bullCount += 1
+        lastFvgT  := newFvg.t
+    else if fvgDynamic
+        maxBullFvg := math.max(math.min(close, maxBullFvg), minBullFvg)
+
+    // Bearish
+    if bearFvg and newFvg.t != lastFvgT
+        if fvgDynamic
+            maxBearFvg := newFvg.max
+            minBearFvg := newFvg.min
+        else
+            fvgAreas.unshift(box.new(bar_index - 2, newFvg.max, bar_index + fvgExt, newFvg.min,
+                 border_color = fvgBordOn ? bearCss.tosolid() : na,
+                 border_width = fvgBordW, border_style = lineStyle(fvgBordSt), bgcolor = bearCss))
+        fvgRecords.unshift(newFvg)
+        bearCount += 1
+        lastFvgT  := newFvg.t
+    else if fvgDynamic
+        minBearFvg := math.min(math.max(close, minBearFvg), maxBearFvg)
+
+    // Records and boxes are index-parallel (when not dynamic), so the oldest is
+    // dropped from both together.
+    if fvgRecords.size() > fvgMaxKeep
+        fvgRecords.pop()
+        if not fvgDynamic and fvgAreas.size() > 0
+            oldest = fvgAreas.pop()
+            oldest.delete()
+
+// Mitigation: a gap dies when price CLOSES through its far edge.
+if fvgRecords.size() > 0
+    for i = fvgRecords.size() - 1 to 0
+        rec = fvgRecords.get(i)
+        bool gone = rec.isbull ? close < rec.min : close > rec.max
+        if gone
+            if fvgMitLines
+                line.new(rec.t, rec.isbull ? rec.min : rec.max, time,
+                     rec.isbull ? rec.min : rec.max, xloc.bar_time,
+                     color = rec.isbull ? bullCss : bearCss,
+                     style = lineStyle(fvgMitSt), width = fvgMitW)
+            if not fvgDynamic and i < fvgAreas.size()
+                area = fvgAreas.remove(i)
+                area.delete()
+            fvgRecords.remove(i)
+            if rec.isbull
+                bullMitigated += 1
+            else
+                bearMitigated += 1
+
+// Levels on the most recent still-unmitigated gaps, redrawn each bar.
+var array<line> unmitigated = array.new<line>(0)
+
+if barstate.islast and fvgShowLast > 0 and fvgRecords.size() > 0
+    if unmitigated.size() > 0
+        for el in unmitigated
+            el.delete()
+        unmitigated.clear()
+    for i = 0 to math.min(fvgShowLast - 1, fvgRecords.size() - 1)
+        rec = fvgRecords.get(i)
+        float y = rec.isbull ? rec.min : rec.max
+        unmitigated.push(line.new(rec.t, y, time, y, xloc.bar_time,
+             color = rec.isbull ? bullCss : bearCss,
+             style = lineStyle(fvgUnmSt), width = fvgUnmW))
+
+// Dynamic mode: one running zone per direction, filled between two hidden plots.
+// Left as plain `color = na` rather than display.none, as in the original --
+// the fill is anchored to these plots and this is the form known to work.
+maxBullPlot = plot(maxBullFvg, "Dyn bull top", color = na)
+minBullPlot = plot(minBullFvg, "Dyn bull btm", color = na)
+fill(maxBullPlot, minBullPlot, color = bullCss)
+
+maxBearPlot = plot(maxBearFvg, "Dyn bear top", color = na)
+minBearPlot = plot(minBearFvg, "Dyn bear btm", color = na)
+fill(maxBearPlot, minBearPlot, color = bearCss)
+
+alertcondition(bullCount > bullCount[1], "Bullish FVG", "Bullish FVG detected")
+alertcondition(bearCount > bearCount[1], "Bearish FVG", "Bearish FVG detected")
+alertcondition(bullMitigated > bullMitigated[1], "Bullish FVG Mitigation", "Bullish FVG mitigated")
+alertcondition(bearMitigated > bearMitigated[1], "Bearish FVG Mitigation", "Bearish FVG mitigated")
+
+// ═════════════════════════════════════════════════════════════════════════════
 // Previous D / W / M
 // ═════════════════════════════════════════════════════════════════════════════
 [pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
@@ -332,7 +498,7 @@ tblPos = switch dashPos
     "Top left"    => position.top_left
     => position.bottom_right
 
-var table dash = table.new(tblPos, 2, 7, border_width = 1)
+var table dash = table.new(tblPos, 2, 9, border_width = 1)
 
 dashRow(int r, string k, string v) =>
     table.cell(dash, 0, r, k, text_color = dashTxtCol, text_size = size.tiny,
@@ -341,6 +507,8 @@ dashRow(int r, string k, string v) =>
          text_halign = text.align_right, bgcolor = dashBgCol)
 
 px(float v) => na(v) ? "—" : str.tostring(v, format.mintick)
+
+pct(int part, int whole) => whole > 0 ? str.tostring(part / whole * 100, format.percent) : "—"
 
 // "CME_MINI:ES1!" -> "ES1!"
 shortSym(string sy) =>
@@ -354,7 +522,9 @@ if dashOn and barstate.islast
     dashRow(2, "SMT vs",       not smtShow ? "off" :
          shortSym(sym1) + (smt2On ? " / " + shortSym(sym2) : ""))
     dashRow(3, "SMT signals",  str.tostring(smtCount))
-    dashRow(4, "PDH / PDL",    px(pdh) + " / " + px(pdl))
-    dashRow(5, "PWH / PWL",    px(pwh) + " / " + px(pwl))
-    dashRow(6, "PD bias",      na(eq) ? "—" : close > eq ? "Premium" : close < eq ? "Discount" : "EQ")
+    dashRow(4, "FVG bull / bear", str.tostring(bullCount) + " / " + str.tostring(bearCount))
+    dashRow(5, "FVG mitigated",   pct(bullMitigated, bullCount) + " / " + pct(bearMitigated, bearCount))
+    dashRow(6, "PDH / PDL",    px(pdh) + " / " + px(pdl))
+    dashRow(7, "PWH / PWL",    px(pwh) + " / " + px(pwl))
+    dashRow(8, "PD bias",      na(eq) ? "—" : close > eq ? "Premium" : close < eq ? "Discount" : "EQ")
 

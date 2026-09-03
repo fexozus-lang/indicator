@@ -1,5 +1,11 @@
 # ICT Toolkit — TradingView indicator
 
+> **Licence: CC BY-NC-SA 4.0.** The Fair Value Gap module is adapted from *Fair Value Gap [LuxAlgo]*
+> © LuxAlgo, published under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).
+> ShareAlike means this combined script inherits that licence: keep the attribution, keep the same
+> licence on anything derived from it, and **do not use it commercially**. Removing the FVG module
+> would lift that constraint.
+
 Single Pine Script v6 indicator: **`ict_toolkit.pine`**.
 
 Paste it into TradingView → Pine Editor → *Add to chart*. Clear the editor's default template first (Ctrl+A, delete) — leaving it in place gives you two `indicator()` calls and a compile error.
@@ -11,8 +17,9 @@ Paste it into TradingView → Pine Editor → *Add to chart*. Clear the editor's
 | **Sessions** | Asia / London / NY AM / NY PM, in a configurable timezone. Each session can show a running high–low box, horizontal high/low lines, and text labels — independently. |
 | **Previous D/W/M** | Previous day, week and month high and low. Drawn with `plot()`, so they cannot be evicted by TradingView's drawing cap. |
 | **PD arrays** | Premium / discount / equilibrium and OTE (0.705 / 0.295, plus 0.618 / 0.382) over a selectable range: previous day, week, month, or the current day. |
+| **FVG** | Three-candle imbalance with a threshold filter (fixed % or auto, from the running average range). Boxes extend right until price closes through the far edge. Optional mitigation levels left behind on fill, levels on the N most recent unmitigated gaps, a higher-timeframe source, and a dynamic mode showing one running zone per direction that shrinks as price fills it. |
 | **SMT divergence** | Swings on this chart are compared with up to two correlated symbols **at the same bars**. When one market makes a higher high and the other does not — or one makes a lower low and the other does not — the disagreement is drawn as a connector between the two swings and labelled. |
-| **Status table** | Active session, which symbols SMT is comparing against, cumulative SMT signals, PDH/PDL, PWH/PWL, premium-or-discount bias. |
+| **Status table** | Active session, which symbols SMT is comparing against, cumulative SMT signals, FVG counts and mitigation rate, PDH/PDL, PWH/PWL, premium-or-discount bias. |
 
 Still to come: CISD.
 
