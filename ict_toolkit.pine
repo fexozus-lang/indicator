@@ -38,6 +38,12 @@ cisdShow     = input.bool(true,  "Show CISD",                       group = G_CI
 cisdConfirm  = input.bool(true,  "Confirm on bar close",            group = G_CISD, tooltip = "Off = marks intrabar the moment price trades through the level (will repaint until the bar closes).")
 cisdMinRun   = input.int(1,      "Min candles in opposing run",     group = G_CISD, minval = 1)
 cisdExtend   = input.int(12,     "Extend CISD line (bars)",         group = G_CISD, minval = 0)
+cisdPending  = input.bool(true,  "Show pending CISD level",          group = G_CISD, tooltip = "Draws the open of the current opposing run live, before it is broken, so you can see the level price has to close through.")
+cisdPendStyl = input.string("Dotted", "Pending line",  options = ["Solid", "Dashed", "Dotted"], group = G_CISD, inline = "cp")
+cisdPendWid  = input.int(1,     "W",                   group = G_CISD, inline = "cp", minval = 1, maxval = 4)
+cisdPendTr   = input.int(45,    "Transp",              group = G_CISD, inline = "cp", minval = 0, maxval = 100)
+cisdSweep    = input.bool(false, "Require liquidity sweep",          group = G_CISD, tooltip = "Only mark the CISD if the opposing run first took out the swing low (bullish) / swing high (bearish) that existed when the run began.")
+cisdSwingLen = input.int(5,     "Sweep swing length",                group = G_CISD, minval = 1)
 cisdStyle    = input.string("Solid", "CISD line",     options = ["Solid", "Dashed", "Dotted"], group = G_CISD, inline = "cl")
 cisdWidth    = input.int(1,     "W",                  group = G_CISD, inline = "cl", minval = 1, maxval = 4)
 cisdBullCol  = input.color(#3b82f6, "Bullish CISD",                 group = G_CISD, inline = "cc")
@@ -244,6 +250,21 @@ var float bullRunOpen = na
 var int   bullRunBar  = na
 var int   bullRunLen  = 0
 var bool  bullRunUsed = false
+// Liquidity reference: the swing that existed when the run began, and whether
+// the run traded through it.
+var float bearRunRef   = na
+var bool  bearRunSwept = false
+var float bullRunRef   = na
+var bool  bullRunSwept = false
+var float lastPivLo    = na
+var float lastPivHi    = na
+
+pvLo = ta.pivotlow(low,   cisdSwingLen, cisdSwingLen)
+pvHi = ta.pivothigh(high, cisdSwingLen, cisdSwingLen)
+if not na(pvLo)
+    lastPivLo := pvLo
+if not na(pvHi)
+    lastPivHi := pvHi
 
 isDn = close < open
 isUp = close > open
@@ -251,25 +272,36 @@ isUp = close > open
 if barstate.isconfirmed
     if isDn
         if not (close[1] < open[1])
-            bearRunOpen := open
-            bearRunBar  := bar_index
-            bearRunLen  := 1
-            bearRunUsed := false
+            bearRunOpen   := open
+            bearRunBar    := bar_index
+            bearRunLen    := 1
+            bearRunUsed   := false
+            bearRunRef    := lastPivLo
+            bearRunSwept  := false
         else
             bearRunLen += 1
     if isUp
         if not (close[1] > open[1])
-            bullRunOpen := open
-            bullRunBar  := bar_index
-            bullRunLen  := 1
-            bullRunUsed := false
+            bullRunOpen   := open
+            bullRunBar    := bar_index
+            bullRunLen    := 1
+            bullRunUsed   := false
+            bullRunRef    := lastPivHi
+            bullRunSwept  := false
         else
             bullRunLen += 1
+    // A run stays "swept" once it has traded through the reference swing.
+    if not na(bearRunRef) and low < bearRunRef
+        bearRunSwept := true
+    if not na(bullRunRef) and high > bullRunRef
+        bullRunSwept := true
 
 live = cisdConfirm ? barstate.isconfirmed : true
 
-bullCISD = cisdShow and live and not bearRunUsed and not na(bearRunOpen) and bearRunLen >= cisdMinRun and close > bearRunOpen
-bearCISD = cisdShow and live and not bullRunUsed and not na(bullRunOpen) and bullRunLen >= cisdMinRun and close < bullRunOpen
+bullCISD = cisdShow and live and not bearRunUsed and not na(bearRunOpen) and bearRunLen >= cisdMinRun
+     and close > bearRunOpen and (not cisdSweep or bearRunSwept)
+bearCISD = cisdShow and live and not bullRunUsed and not na(bullRunOpen) and bullRunLen >= cisdMinRun
+     and close < bullRunOpen and (not cisdSweep or bullRunSwept)
 
 markCISD(float lvlPrice, int fromBar, color col) =>
     line.new(fromBar, lvlPrice, bar_index + cisdExtend, lvlPrice, color = col,
@@ -284,6 +316,28 @@ if bullCISD
 if bearCISD
     bullRunUsed := true
     markCISD(bullRunOpen, bullRunBar, cisdBearCol)
+
+// Live view of the level price still has to close through.
+pending(line ln, bool active, float price, int fromBar, color col) =>
+    line out = ln
+    if active
+        if na(out)
+            out := line.new(fromBar, price, bar_index + cisdExtend, price, color = color.new(col, cisdPendTr),
+                 style = lineStyle(cisdPendStyl), width = cisdPendWid)
+        else
+            line.set_xy1(out, fromBar, price)
+            line.set_xy2(out, bar_index + cisdExtend, price)
+    else if not na(out)
+        line.delete(out)
+        out := na
+    out
+
+var line pendBullLn = na
+var line pendBearLn = na
+bullPendOn = cisdShow and cisdPending and not na(bearRunOpen) and not bearRunUsed and bearRunLen >= cisdMinRun
+bearPendOn = cisdShow and cisdPending and not na(bullRunOpen) and not bullRunUsed and bullRunLen >= cisdMinRun
+pendBullLn := pending(pendBullLn, bullPendOn, bearRunOpen, bearRunBar, cisdBullCol)
+pendBearLn := pending(pendBearLn, bearPendOn, bullRunOpen, bullRunBar, cisdBearCol)
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 3) SMT divergence

@@ -10,7 +10,7 @@ Paste it into TradingView → Pine Editor → *Add to chart*.
 |---|---|
 | **FVG** | 3-candle imbalance (`low > high[2]` / `high < low[2]`). Optional displacement filter (middle candle must close in the gap's direction) and a minimum size filter in ATR(200) multiples. Box extends right until mitigated. Optional CE (consequent encroachment) midline. |
 | **IFVG** | When a bar *closes* through a gap's far edge, the zone flips polarity and is recoloured as an inverted FVG instead of being deleted. It is removed once price closes back through it. |
-| **CISD** | Tracks the last consecutive run of same-direction *closes*. A close back through the **open of the first candle of that run** marks the change in state of delivery; the level is drawn from the run's origin. |
+| **CISD** | The level is the **open of the candle that started the most recent opposing run** — i.e. the open of the last consecutive run of same-direction closes. Bullish CISD prints when price closes back *above* that level; bearish is the mirror. The pending level is drawn live (dotted) from the run's origin before it breaks, then re-drawn solid and labelled on the break. An optional filter requires the run to have swept the swing low/high that existed when it began. |
 | **SMT** | Pivot highs/lows on the chart symbol are compared against up to 2 correlated symbols at the *same bars*. If one makes a higher high and the other doesn't (or one makes a lower low and the other doesn't), the divergence is drawn and labelled. |
 | **Sessions** | Asia / London / NY AM / NY PM boxes with running high–low, in a configurable timezone. Session high/low lines keep extending after the session closes. |
 | **PD levels** | Previous day / week / month high and low, anchored to the start of the current period. |
@@ -25,7 +25,7 @@ Paste it into TradingView → Pine Editor → *Add to chart*.
 Every drawing exposes **colour + line style (Solid / Dashed / Dotted) + width** in the settings panel:
 
 - **FVG / IFVG** — separate fills for bullish/bearish FVG and bullish/bearish IFVG (each colour input has TradingView's opacity slider), zone border style & width, CE line style & width, and a zone-label mode: `None` / `IFVG only` / `All`.
-- **CISD** — line colour per direction, style, width, extension length, and an optional floating `CISD` label at the right end of the level.
+- **CISD** — line colour per direction, style, width, extension length, an optional floating `CISD` label at the right end of the level, and separate style/width/transparency for the pending (unbroken) level.
 - **SMT** — connector style and width. `Match chart text colour` draws it in `chart.fg_color` so it reads on light and dark themes; turn it off to set explicit bullish/bearish colours.
 - **Sessions** — per-session colour, box border style & width, fill transparency, and high/low line style & width.
 - **Previous D/W/M** — colour, style and width per timeframe.
@@ -38,7 +38,8 @@ Labels are drawn as floating text (`label.style_none`) rather than bubbles, so t
 Everything that changes structure is gated on bar close:
 
 - FVGs are created and mitigated/inverted on **confirmed bars only**.
-- CISD defaults to `Confirm on bar close = true`. Turning it off marks the break intrabar — faster, but the mark can disappear if the bar closes back inside.
+- CISD run tracking updates only on confirmed bars, so the level itself never moves intrabar. `Confirm on bar close` (default on) additionally gates the *break*; turning it off marks the break intrabar — faster, but the mark can disappear if the bar closes back inside.
+- The liquidity-sweep reference is the last pivot confirmed *before* the run started, so it is not revised by the run's own swing.
 - SMT pivots confirm `Swing pivot length` bars after the swing prints. That lag is inherent to pivots — lower the length for faster (noisier) signals.
 - Previous D/W/M values use `high[1]`/`low[1]` with `lookahead_on`, which reads only *closed* higher-timeframe bars.
 
