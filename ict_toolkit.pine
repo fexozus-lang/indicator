@@ -1,0 +1,382 @@
+//@version=6
+// ICT Toolkit — FVG / IFVG / CISD / SMT / Sessions / PD Arrays
+// Single-file TradingView indicator.
+indicator("ICT Toolkit — FVG / IFVG / CISD / SMT", shorttitle = "ICT Toolkit", overlay = true,
+     max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
+
+const string G_FVG  = "Fair Value Gaps / IFVG"
+const string G_CISD = "CISD"
+const string G_SMT  = "SMT Divergence"
+const string G_SES  = "Sessions"
+const string G_HTF  = "Previous D / W / M Levels"
+const string G_PD   = "PD Arrays (Premium / Discount / OTE)"
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Inputs
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── FVG ──
+fvgShow      = input.bool(true,  "Show FVG",                       group = G_FVG)
+fvgDisp      = input.bool(true,  "Require displacement candle",     group = G_FVG, tooltip = "The middle candle must close in the direction of the gap.")
+fvgMinAtr    = input.float(0.0,  "Min gap size (× ATR200)",         group = G_FVG, minval = 0, step = 0.05)
+fvgShowCE    = input.bool(true,  "Show consequent encroachment (CE)", group = G_FVG)
+fvgMax       = input.int(20,     "Max live gaps kept",              group = G_FVG, minval = 1, maxval = 100)
+ifvgShow     = input.bool(true,  "Invert mitigated FVG into IFVG",  group = G_FVG)
+fvgBullCol   = input.color(color.new(#089981, 82), "Bullish FVG",   group = G_FVG, inline = "fc")
+fvgBearCol   = input.color(color.new(#f23645, 82), "Bearish FVG",   group = G_FVG, inline = "fc")
+ifvgBullCol  = input.color(color.new(#2962ff, 78), "Bullish IFVG",  group = G_FVG, inline = "ic")
+ifvgBearCol  = input.color(color.new(#ff9800, 78), "Bearish IFVG",  group = G_FVG, inline = "ic")
+
+// ── CISD ──
+cisdShow     = input.bool(true,  "Show CISD",                       group = G_CISD)
+cisdConfirm  = input.bool(true,  "Confirm on bar close",            group = G_CISD, tooltip = "Off = marks intrabar the moment price trades through the level (will repaint until the bar closes).")
+cisdMinRun   = input.int(1,      "Min candles in opposing run",     group = G_CISD, minval = 1)
+cisdExtend   = input.int(12,     "Extend CISD line (bars)",         group = G_CISD, minval = 0)
+cisdBullCol  = input.color(#089981, "Bullish CISD",                 group = G_CISD, inline = "cc")
+cisdBearCol  = input.color(#f23645, "Bearish CISD",                 group = G_CISD, inline = "cc")
+
+// ── SMT ──
+smtShow      = input.bool(true,  "Show SMT divergence",             group = G_SMT)
+smtPiv       = input.int(3,      "Swing pivot length",              group = G_SMT, minval = 1, tooltip = "Smaller = faster/noisier. A pivot confirms this many bars after it prints.")
+smt1On       = input.bool(true,  "Correlated symbol 1",             group = G_SMT, inline = "s1")
+smt1Sym      = input.symbol("CME_MINI:NQ1!", "",                    group = G_SMT, inline = "s1")
+smt2On       = input.bool(false, "Correlated symbol 2",             group = G_SMT, inline = "s2")
+smt2Sym      = input.symbol("CME_MINI:YM1!", "",                    group = G_SMT, inline = "s2")
+smtBearCol   = input.color(#f23645, "Bearish SMT (at highs)",       group = G_SMT, inline = "sc")
+smtBullCol   = input.color(#089981, "Bullish SMT (at lows)",        group = G_SMT, inline = "sc")
+
+// ── Sessions ──
+sesShow      = input.bool(true,  "Show sessions",                   group = G_SES)
+sesTz        = input.string("America/New_York", "Session timezone", group = G_SES)
+sesLines     = input.bool(true,  "Extend session high/low",         group = G_SES)
+s1On         = input.bool(true,  "Asia",     group = G_SES, inline = "a")
+s1Time       = input.session("2000-0000", "", group = G_SES, inline = "a")
+s1Col        = input.color(#9c27b0, "",       group = G_SES, inline = "a")
+s2On         = input.bool(true,  "London",   group = G_SES, inline = "b")
+s2Time       = input.session("0200-0500", "", group = G_SES, inline = "b")
+s2Col        = input.color(#2962ff, "",       group = G_SES, inline = "b")
+s3On         = input.bool(true,  "NY AM",    group = G_SES, inline = "c")
+s3Time       = input.session("0930-1100", "", group = G_SES, inline = "c")
+s3Col        = input.color(#ff9800, "",       group = G_SES, inline = "c")
+s4On         = input.bool(true,  "NY PM",    group = G_SES, inline = "d")
+s4Time       = input.session("1330-1600", "", group = G_SES, inline = "d")
+s4Col        = input.color(#607d8b, "",       group = G_SES, inline = "d")
+
+// ── Previous HTF levels ──
+pdOn         = input.bool(true,  "Previous Day H/L",   group = G_HTF, inline = "h1")
+pdCol        = input.color(#787b86, "",                group = G_HTF, inline = "h1")
+pwOn         = input.bool(true,  "Previous Week H/L",  group = G_HTF, inline = "h2")
+pwCol        = input.color(#2962ff, "",                group = G_HTF, inline = "h2")
+pmOn         = input.bool(false, "Previous Month H/L", group = G_HTF, inline = "h3")
+pmCol        = input.color(#9c27b0, "",                group = G_HTF, inline = "h3")
+htfLabels    = input.bool(true,  "Show level labels",  group = G_HTF)
+
+// ── PD arrays ──
+pdaOn        = input.bool(true,  "Show PD array",                   group = G_PD)
+pdaRange     = input.string("Previous Day", "Range", options = ["Previous Day", "Previous Week", "Previous Month", "Current Day"], group = G_PD)
+pdaOTEonly   = input.bool(false, "OTE + equilibrium only",          group = G_PD)
+pdaCol       = input.color(#787b86, "Line color",                   group = G_PD)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Shared
+// ═════════════════════════════════════════════════════════════════════════════
+atr200 = ta.atr(200)
+
+var int dStart = 0
+var int wStart = 0
+var int mStart = 0
+if timeframe.change("D")
+    dStart := bar_index
+if timeframe.change("W")
+    wStart := bar_index
+if timeframe.change("M")
+    mStart := bar_index
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 1) FVG + IFVG
+// ═════════════════════════════════════════════════════════════════════════════
+type Gap
+    box   bx
+    line  ce
+    float top
+    float btm
+    bool  bull
+    bool  inv
+
+var array<Gap> gaps = array.new<Gap>()
+
+bullRaw = low > high[2] and (not fvgDisp or close[1] > open[1])
+bearRaw = high < low[2] and (not fvgDisp or close[1] < open[1])
+
+bullTop = low
+bullBtm = high[2]
+bearTop = low[2]
+bearBtm = high
+
+sizeOk(float t, float b) => na(atr200) or fvgMinAtr <= 0 or (t - b) >= atr200 * fvgMinAtr
+
+newGap(float t, float b, bool isBull) =>
+    col = isBull ? fvgBullCol : fvgBearCol
+    line ceLn = na
+    if fvgShowCE
+        ceLn := line.new(bar_index - 2, math.avg(t, b), bar_index + 1, math.avg(t, b),
+             color = color.new(col, 20), style = line.style_dotted)
+    Gap g = Gap.new(
+         bx  = box.new(bar_index - 2, t, bar_index + 1, b, border_color = color.new(col, 60), bgcolor = col),
+         ce  = ceLn, top = t, btm = b, bull = isBull, inv = false)
+    array.push(gaps, g)
+    if array.size(gaps) > fvgMax
+        Gap old = array.shift(gaps)
+        box.delete(old.bx)
+        if not na(old.ce)
+            line.delete(old.ce)
+
+newBullFVG = fvgShow and bullRaw and sizeOk(bullTop, bullBtm) and barstate.isconfirmed
+newBearFVG = fvgShow and bearRaw and sizeOk(bearTop, bearBtm) and barstate.isconfirmed
+
+if newBullFVG
+    newGap(bullTop, bullBtm, true)
+if newBearFVG
+    newGap(bearTop, bearBtm, false)
+
+var bool newIFVG = false
+newIFVG := false
+
+if array.size(gaps) > 0
+    for i = array.size(gaps) - 1 to 0
+        Gap g = array.get(gaps, i)
+        // A zone is breached when a bar CLOSES through its far edge.
+        breached = barstate.isconfirmed and (g.bull ? close < g.btm : close > g.top)
+        if breached
+            if not g.inv and ifvgShow
+                // Mitigated FVG flips polarity and becomes an inverted FVG.
+                g.inv  := true
+                g.bull := not g.bull
+                icol   = g.bull ? ifvgBullCol : ifvgBearCol
+                box.set_bgcolor(g.bx, icol)
+                box.set_border_color(g.bx, color.new(icol, 50))
+                if not na(g.ce)
+                    line.set_color(g.ce, color.new(icol, 20))
+                newIFVG := true
+            else
+                box.delete(g.bx)
+                if not na(g.ce)
+                    line.delete(g.ce)
+                array.remove(gaps, i)
+        else
+            box.set_right(g.bx, bar_index + 1)
+            if not na(g.ce)
+                line.set_x2(g.ce, bar_index + 1)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 2) CISD — Change In State of Delivery
+//    Bullish: close back above the OPEN of the first candle of the last
+//    consecutive down-close run. Bearish: mirror.
+// ═════════════════════════════════════════════════════════════════════════════
+var float bearRunOpen = na
+var int   bearRunBar  = na
+var int   bearRunLen  = 0
+var bool  bearRunUsed = false
+var float bullRunOpen = na
+var int   bullRunBar  = na
+var int   bullRunLen  = 0
+var bool  bullRunUsed = false
+
+isDn = close < open
+isUp = close > open
+
+if barstate.isconfirmed
+    if isDn
+        if not (close[1] < open[1])
+            bearRunOpen := open
+            bearRunBar  := bar_index
+            bearRunLen  := 1
+            bearRunUsed := false
+        else
+            bearRunLen += 1
+    if isUp
+        if not (close[1] > open[1])
+            bullRunOpen := open
+            bullRunBar  := bar_index
+            bullRunLen  := 1
+            bullRunUsed := false
+        else
+            bullRunLen += 1
+
+live = cisdConfirm ? barstate.isconfirmed : true
+
+bullCISD = cisdShow and live and not bearRunUsed and not na(bearRunOpen) and bearRunLen >= cisdMinRun and close > bearRunOpen
+bearCISD = cisdShow and live and not bullRunUsed and not na(bullRunOpen) and bullRunLen >= cisdMinRun and close < bullRunOpen
+
+if bullCISD
+    bearRunUsed := true
+    line.new(bearRunBar, bearRunOpen, bar_index + cisdExtend, bearRunOpen, color = cisdBullCol, width = 2)
+    label.new(bar_index, bearRunOpen, "CISD", style = label.style_label_up, color = color.new(cisdBullCol, 20),
+         textcolor = color.white, size = size.tiny)
+if bearCISD
+    bullRunUsed := true
+    line.new(bullRunBar, bullRunOpen, bar_index + cisdExtend, bullRunOpen, color = cisdBearCol, width = 2)
+    label.new(bar_index, bullRunOpen, "CISD", style = label.style_label_down, color = color.new(cisdBearCol, 20),
+         textcolor = color.white, size = size.tiny)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 3) SMT divergence
+// ═════════════════════════════════════════════════════════════════════════════
+sym1 = smt1On ? smt1Sym : syminfo.tickerid
+sym2 = smt2On ? smt2Sym : syminfo.tickerid
+[c1h, c1l] = request.security(sym1, timeframe.period, [high, low], barmerge.gaps_off, barmerge.lookahead_off, ignore_invalid_symbol = true)
+[c2h, c2l] = request.security(sym2, timeframe.period, [high, low], barmerge.gaps_off, barmerge.lookahead_off, ignore_invalid_symbol = true)
+
+phv = ta.pivothigh(high, smtPiv, smtPiv)
+plv = ta.pivotlow(low,  smtPiv, smtPiv)
+
+// Each call site keeps its own persistent state.
+smtScan(float pivVal, float corrVal, bool isHigh, bool enabled, string tag, color col) =>
+    var float prevPiv  = na
+    var float prevCorr = na
+    var int   prevBar  = na
+    bool sig = false
+    if not na(pivVal) and not na(corrVal)
+        int curBar = bar_index - smtPiv
+        if enabled and not na(prevPiv) and not na(prevCorr)
+            bool chartHigher = pivVal  > prevPiv
+            bool corrHigher  = corrVal > prevCorr
+            if chartHigher != corrHigher
+                sig := true
+                line.new(prevBar, prevPiv, curBar, pivVal, color = col, width = 2, style = line.style_dashed)
+                label.new(curBar, pivVal, tag,
+                     style = isHigh ? label.style_label_down : label.style_label_up,
+                     color = color.new(col, 15), textcolor = color.white, size = size.tiny)
+        prevPiv  := pivVal
+        prevCorr := corrVal
+        prevBar  := curBar
+    sig
+
+smtBear1 = smtScan(phv, c1h[smtPiv], true,  smtShow and smt1On, "SMT", smtBearCol)
+smtBull1 = smtScan(plv, c1l[smtPiv], false, smtShow and smt1On, "SMT", smtBullCol)
+smtBear2 = smtScan(phv, c2h[smtPiv], true,  smtShow and smt2On, "SMT²", smtBearCol)
+smtBull2 = smtScan(plv, c2l[smtPiv], false, smtShow and smt2On, "SMT²", smtBullCol)
+
+smtBearSig = smtBear1 or smtBear2
+smtBullSig = smtBull1 or smtBull2
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 4) Sessions
+// ═════════════════════════════════════════════════════════════════════════════
+drawSession(bool en, string sess, color col, string nm) =>
+    var box   bx  = na
+    var line  lhi = na
+    var line  llo = na
+    var label lb  = na
+    var float hi  = na
+    var float lo  = na
+    bool inSess = en and sesShow and not na(time(timeframe.period, sess, sesTz))
+    if inSess and not inSess[1]
+        hi := high
+        lo := low
+        bx := box.new(bar_index, high, bar_index, low, border_color = color.new(col, 40),
+             bgcolor = color.new(col, 92), text = nm, text_size = size.tiny, text_color = color.new(col, 25))
+        if sesLines
+            lhi := line.new(bar_index, high, bar_index, high, color = col, style = line.style_dotted)
+            llo := line.new(bar_index, low,  bar_index, low,  color = col, style = line.style_dotted)
+    else if inSess
+        hi := math.max(hi, high)
+        lo := math.min(lo, low)
+        box.set_top(bx, hi)
+        box.set_bottom(bx, lo)
+        box.set_right(bx, bar_index)
+        if sesLines and not na(lhi)
+            line.set_xy1(lhi, bar_index, hi)
+            line.set_xy2(lhi, bar_index, hi)
+            line.set_xy1(llo, bar_index, lo)
+            line.set_xy2(llo, bar_index, lo)
+    else if sesLines and not na(lhi)
+        // Session closed: keep dragging its high/low forward.
+        line.set_x2(lhi, bar_index)
+        line.set_x2(llo, bar_index)
+    true
+
+drawSession(s1On, s1Time, s1Col, "Asia")
+drawSession(s2On, s2Time, s2Col, "London")
+drawSession(s3On, s3Time, s3Col, "NY AM")
+drawSession(s4On, s4Time, s4Col, "NY PM")
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 5) Previous D / W / M high & low
+// ═════════════════════════════════════════════════════════════════════════════
+[pdhV, pdlV] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pwhV, pwlV] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pmhV, pmlV] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+lvl(bool en, float price, int fromBar, color col, string txt, string st, int lw) =>
+    var line  ln = na
+    var label lb = na
+    if en and not na(price)
+        if na(ln)
+            ln := line.new(fromBar, price, bar_index + 1, price, color = col, width = lw, style = st)
+            lb := label.new(bar_index + 1, price, txt, style = label.style_label_left,
+                 color = color.new(col, 100), textcolor = col, size = size.tiny)
+        else
+            line.set_xy1(ln, fromBar, price)
+            line.set_xy2(ln, bar_index + 1, price)
+            label.set_xy(lb, bar_index + 1, price)
+            label.set_text(lb, txt)
+    ln
+
+lvl(pdOn, pdhV, dStart, pdCol, htfLabels ? "PDH" : "", line.style_solid,  1)
+lvl(pdOn, pdlV, dStart, pdCol, htfLabels ? "PDL" : "", line.style_solid,  1)
+lvl(pwOn, pwhV, wStart, pwCol, htfLabels ? "PWH" : "", line.style_dashed, 1)
+lvl(pwOn, pwlV, wStart, pwCol, htfLabels ? "PWL" : "", line.style_dashed, 1)
+lvl(pmOn, pmhV, mStart, pmCol, htfLabels ? "PMH" : "", line.style_dotted, 2)
+lvl(pmOn, pmlV, mStart, pmCol, htfLabels ? "PML" : "", line.style_dotted, 2)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 6) PD arrays — premium / discount / equilibrium / OTE
+// ═════════════════════════════════════════════════════════════════════════════
+var float curDayHi = na
+var float curDayLo = na
+if timeframe.change("D")
+    curDayHi := high
+    curDayLo := low
+else
+    curDayHi := math.max(nz(curDayHi, high), high)
+    curDayLo := math.min(nz(curDayLo, low),  low)
+
+rHi = switch pdaRange
+    "Previous Day"   => pdhV
+    "Previous Week"  => pwhV
+    "Previous Month" => pmhV
+    => curDayHi
+rLo = switch pdaRange
+    "Previous Day"   => pdlV
+    "Previous Week"  => pwlV
+    "Previous Month" => pmlV
+    => curDayLo
+rStart = switch pdaRange
+    "Previous Day"   => dStart
+    "Previous Week"  => wStart
+    "Previous Month" => mStart
+    => dStart
+
+fib(float f) => na(rHi) or na(rLo) ? float(na) : rLo + (rHi - rLo) * f
+
+lvl(pdaOn,                   fib(1.000), rStart, pdaCol, "Premium 1.0",  line.style_solid,  1)
+lvl(pdaOn and not pdaOTEonly, fib(0.790), rStart, pdaCol, "0.79",        line.style_dotted, 1)
+lvl(pdaOn,                   fib(0.705), rStart, pdaCol, "OTE 0.705",    line.style_dashed, 1)
+lvl(pdaOn and not pdaOTEonly, fib(0.618), rStart, pdaCol, "0.618",       line.style_dotted, 1)
+lvl(pdaOn,                   fib(0.500), rStart, pdaCol, "EQ 0.5",       line.style_solid,  2)
+lvl(pdaOn and not pdaOTEonly, fib(0.382), rStart, pdaCol, "0.382",       line.style_dotted, 1)
+lvl(pdaOn,                   fib(0.295), rStart, pdaCol, "OTE 0.295",    line.style_dashed, 1)
+lvl(pdaOn and not pdaOTEonly, fib(0.210), rStart, pdaCol, "0.21",        line.style_dotted, 1)
+lvl(pdaOn,                   fib(0.000), rStart, pdaCol, "Discount 0.0", line.style_solid,  1)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Alerts
+// ═════════════════════════════════════════════════════════════════════════════
+alertcondition(newBullFVG, "Bullish FVG",   "Bullish FVG formed on {{ticker}} {{interval}}")
+alertcondition(newBearFVG, "Bearish FVG",   "Bearish FVG formed on {{ticker}} {{interval}}")
+alertcondition(newIFVG,    "IFVG",          "FVG inverted (IFVG) on {{ticker}} {{interval}}")
+alertcondition(bullCISD,   "Bullish CISD",  "Bullish CISD on {{ticker}} {{interval}}")
+alertcondition(bearCISD,   "Bearish CISD",  "Bearish CISD on {{ticker}} {{interval}}")
+alertcondition(smtBearSig, "Bearish SMT",   "Bearish SMT divergence on {{ticker}} {{interval}}")
+alertcondition(smtBullSig, "Bullish SMT",   "Bullish SMT divergence on {{ticker}} {{interval}}")
