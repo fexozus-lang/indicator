@@ -2,7 +2,8 @@
 // ICT Toolkit — FVG / IFVG / CISD / SMT / Sessions / PD Arrays
 // Single-file TradingView indicator.
 indicator("ICT Toolkit — FVG / IFVG / CISD / SMT", shorttitle = "ICT Toolkit", overlay = true,
-     max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
+     max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500,
+     max_bars_back = 1000)
 
 const string G_FVG  = "Fair Value Gaps / IFVG"
 const string G_CISD = "CISD"
@@ -29,8 +30,8 @@ fvgMax       = input.int(20,     "Max live gaps kept",              group = G_FV
 ifvgShow     = input.bool(true,  "Invert mitigated FVG into IFVG",  group = G_FVG)
 fvgLabelMode = input.string("IFVG only", "Zone labels", options = ["None", "IFVG only", "All"], group = G_FVG)
 fvgLabelCol  = input.color(#5d606b, "Zone label text",                group = G_FVG)
-fvgBullCol   = input.color(color.new(#089981, 82), "Bullish FVG",   group = G_FVG, inline = "fc")
-fvgBearCol   = input.color(color.new(#f23645, 82), "Bearish FVG",   group = G_FVG, inline = "fc")
+fvgBullCol   = input.color(color.new(#089981, 75), "Bullish FVG",   group = G_FVG, inline = "fc")
+fvgBearCol   = input.color(color.new(#f23645, 75), "Bearish FVG",   group = G_FVG, inline = "fc")
 ifvgBullCol  = input.color(color.new(#26c6da, 72), "Bullish IFVG",  group = G_FVG, inline = "ic")
 ifvgBearCol  = input.color(color.new(#ff7043, 72), "Bearish IFVG",  group = G_FVG, inline = "ic")
 
@@ -72,7 +73,7 @@ sesTz        = input.string("America/New_York", "Session timezone", group = G_SE
 sesKeep      = input.int(10,    "Sessions kept per type",           group = G_SES, minval = 1, maxval = 50, tooltip = "TradingView caps a script at 500 boxes / lines / labels. Keeping older sessions forever would evict the level lines, so old session drawings are removed.")
 sesBoxStyle  = input.string("Solid",  "Session box border", options = ["Solid", "Dashed", "Dotted"], group = G_SES, inline = "sb")
 sesBoxWidth  = input.int(1,     "W",                  group = G_SES, inline = "sb", minval = 0, maxval = 4)
-sesFillTr    = input.int(92,    "Fill transparency",  group = G_SES, minval = 0, maxval = 100)
+sesFillTr    = input.int(85,    "Fill transparency",  group = G_SES, minval = 0, maxval = 100)
 sesLines     = input.bool(true, "Extend session high/low", group = G_SES)
 sesLineStyle = input.string("Dotted", "H/L line",     options = ["Solid", "Dashed", "Dotted"], group = G_SES, inline = "sl2")
 sesLineWidth = input.int(1,     "W",                  group = G_SES, inline = "sl2", minval = 1, maxval = 4)
@@ -124,7 +125,7 @@ pdaSubWidth  = input.int(1, "W",                                    group = G_PD
 
 // ── Dashboard ──
 dashOn       = input.bool(true,  "Show status table",               group = G_GEN)
-dashPos      = input.string("Top right", "Position", options = ["Top right", "Top left", "Bottom right", "Bottom left"], group = G_GEN)
+dashPos      = input.string("Bottom right", "Position", options = ["Bottom right", "Bottom left", "Top right", "Top left"], group = G_GEN)
 dashTxtCol   = input.color(#b2b5be, "Text",                         group = G_GEN, inline = "d")
 dashBgCol    = input.color(color.new(#131722, 20), "Background",    group = G_GEN, inline = "d")
 
