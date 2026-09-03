@@ -10,6 +10,7 @@ const string G_SMT  = "SMT Divergence"
 const string G_SES  = "Sessions"
 const string G_HTF  = "Previous D / W / M Levels"
 const string G_PD   = "PD Arrays (Premium / Discount / OTE)"
+const string G_GEN  = "Dashboard"
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Inputs
@@ -44,6 +45,7 @@ cisdPendWid  = input.int(1,     "W",                   group = G_CISD, inline = 
 cisdPendTr   = input.int(45,    "Transp",              group = G_CISD, inline = "cp", minval = 0, maxval = 100)
 cisdSweep    = input.bool(false, "Require liquidity sweep",          group = G_CISD, tooltip = "Only mark the CISD if the opposing run first took out the swing low (bullish) / swing high (bearish) that existed when the run began.")
 cisdSwingLen = input.int(5,     "Sweep swing length",                group = G_CISD, minval = 1)
+cisdKeep     = input.int(20,    "Max CISD levels kept",              group = G_CISD, minval = 1, maxval = 100)
 cisdStyle    = input.string("Solid", "CISD line",     options = ["Solid", "Dashed", "Dotted"], group = G_CISD, inline = "cl")
 cisdWidth    = input.int(1,     "W",                  group = G_CISD, inline = "cl", minval = 1, maxval = 4)
 cisdBullCol  = input.color(#3b82f6, "Bullish CISD",                 group = G_CISD, inline = "cc")
@@ -57,6 +59,7 @@ smt1On       = input.bool(true,  "Correlated symbol 1",             group = G_SM
 smt1Sym      = input.symbol("CME_MINI:NQ1!", "",                    group = G_SMT, inline = "s1")
 smt2On       = input.bool(false, "Correlated symbol 2",             group = G_SMT, inline = "s2")
 smt2Sym      = input.symbol("CME_MINI:YM1!", "",                    group = G_SMT, inline = "s2")
+smtKeep      = input.int(20,    "Max SMT marks kept",               group = G_SMT, minval = 1, maxval = 100)
 smtStyle     = input.string("Solid", "SMT connector",  options = ["Solid", "Dashed", "Dotted"], group = G_SMT, inline = "sl")
 smtWidth     = input.int(1,     "W",                  group = G_SMT, inline = "sl", minval = 1, maxval = 4)
 smtAutoCol   = input.bool(true,  "Match chart text colour",         group = G_SMT, tooltip = "Draws the SMT connector in the chart's foreground colour so it reads on light and dark themes.")
@@ -66,6 +69,7 @@ smtBullCol   = input.color(#089981, "Bullish SMT (at lows)",        group = G_SM
 // ── Sessions ──
 sesShow      = input.bool(true,  "Show sessions",                   group = G_SES)
 sesTz        = input.string("America/New_York", "Session timezone", group = G_SES)
+sesKeep      = input.int(10,    "Sessions kept per type",           group = G_SES, minval = 1, maxval = 50, tooltip = "TradingView caps a script at 500 boxes / lines / labels. Keeping older sessions forever would evict the level lines, so old session drawings are removed.")
 sesBoxStyle  = input.string("Solid",  "Session box border", options = ["Solid", "Dashed", "Dotted"], group = G_SES, inline = "sb")
 sesBoxWidth  = input.int(1,     "W",                  group = G_SES, inline = "sb", minval = 0, maxval = 4)
 sesFillTr    = input.int(92,    "Fill transparency",  group = G_SES, minval = 0, maxval = 100)
@@ -117,6 +121,12 @@ pdaOteWidth  = input.int(1, "W",                                    group = G_PD
 pdaSubCol    = input.color(#b2b5be, "Other fib levels",             group = G_PD, inline = "p4")
 pdaSubStyle  = input.string("Dotted", "", options = ["Solid", "Dashed", "Dotted"], group = G_PD, inline = "p4")
 pdaSubWidth  = input.int(1, "W",                                    group = G_PD, inline = "p4", minval = 1, maxval = 4)
+
+// ── Dashboard ──
+dashOn       = input.bool(true,  "Show status table",               group = G_GEN)
+dashPos      = input.string("Top right", "Position", options = ["Top right", "Top left", "Bottom right", "Bottom left"], group = G_GEN)
+dashTxtCol   = input.color(#b2b5be, "Text",                         group = G_GEN, inline = "d")
+dashBgCol    = input.color(color.new(#131722, 20), "Background",    group = G_GEN, inline = "d")
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Shared
@@ -303,19 +313,35 @@ bullCISD = cisdShow and live and not bearRunUsed and not na(bearRunOpen) and bea
 bearCISD = cisdShow and live and not bullRunUsed and not na(bullRunOpen) and bullRunLen >= cisdMinRun
      and close < bullRunOpen and (not cisdSweep or bullRunSwept)
 
+// Drawings are capped: TradingView keeps only the newest 500 boxes/lines/labels
+// per script, and silently discards the oldest. Left unbounded, the marks from
+// years of history would evict the level lines drawn once at the start.
+var array<line>  cisdLines = array.new<line>()
+var array<label> cisdLabs  = array.new<label>()
+var int    lastCisdBar = na
+var string lastCisdDir = ""
+
 markCISD(float lvlPrice, int fromBar, color col) =>
-    line.new(fromBar, lvlPrice, bar_index + cisdExtend, lvlPrice, color = col,
-         width = cisdWidth, style = lineStyle(cisdStyle))
+    array.push(cisdLines, line.new(fromBar, lvlPrice, bar_index + cisdExtend, lvlPrice,
+         color = col, width = cisdWidth, style = lineStyle(cisdStyle)))
     if cisdLabels
-        label.new(bar_index + cisdExtend + 3, lvlPrice, "CISD", style = label.style_none,
-             textcolor = col, size = size.tiny)
+        array.push(cisdLabs, label.new(bar_index + cisdExtend + 3, lvlPrice, "CISD",
+             style = label.style_none, textcolor = col, size = size.tiny))
+    if array.size(cisdLines) > cisdKeep
+        line.delete(array.shift(cisdLines))
+    if array.size(cisdLabs) > cisdKeep
+        label.delete(array.shift(cisdLabs))
 
 if bullCISD
     bearRunUsed := true
     markCISD(bearRunOpen, bearRunBar, cisdBullCol)
+    lastCisdBar := bar_index
+    lastCisdDir := "Bull"
 if bearCISD
     bullRunUsed := true
     markCISD(bullRunOpen, bullRunBar, cisdBearCol)
+    lastCisdBar := bar_index
+    lastCisdDir := "Bear"
 
 // Live view of the level price still has to close through.
 pending(line ln, bool active, float price, int fromBar, color col) =>
@@ -351,6 +377,17 @@ phv = ta.pivothigh(high, smtPiv, smtPiv)
 plv = ta.pivotlow(low,  smtPiv, smtPiv)
 
 // Each call site keeps its own persistent state.
+var array<line>  smtLines = array.new<line>()
+var array<label> smtLabs  = array.new<label>()
+var int smtCount = 0
+
+smtKeepCapped(line ln, label lb) =>
+    array.push(smtLines, ln)
+    array.push(smtLabs, lb)
+    if array.size(smtLines) > smtKeep
+        line.delete(array.shift(smtLines))
+        label.delete(array.shift(smtLabs))
+
 smtScan(float pivVal, float corrVal, bool isHigh, bool enabled, string tag, color col) =>
     var float prevPiv  = na
     var float prevCorr = na
@@ -363,12 +400,13 @@ smtScan(float pivVal, float corrVal, bool isHigh, bool enabled, string tag, colo
             bool corrHigher  = corrVal > prevCorr
             if chartHigher != corrHigher
                 sig := true
-                line.new(prevBar, prevPiv, curBar, pivVal, color = col,
-                     width = smtWidth, style = lineStyle(smtStyle))
                 float pad = nz(atr200, 0) * 0.5
-                label.new(math.round(math.avg(prevBar, curBar)),
-                     isHigh ? math.max(prevPiv, pivVal) + pad : math.min(prevPiv, pivVal) - pad,
-                     tag, style = label.style_none, textcolor = col, size = size.tiny)
+                smtKeepCapped(
+                     line.new(prevBar, prevPiv, curBar, pivVal, color = col,
+                         width = smtWidth, style = lineStyle(smtStyle)),
+                     label.new(math.round(math.avg(prevBar, curBar)),
+                         isHigh ? math.max(prevPiv, pivVal) + pad : math.min(prevPiv, pivVal) - pad,
+                         tag, style = label.style_none, textcolor = col, size = size.tiny))
         prevPiv  := pivVal
         prevCorr := corrVal
         prevBar  := curBar
@@ -384,15 +422,22 @@ smtBull2 = smtScan(plv, c2l[smtPiv], false, smtShow and smt2On, "SMT²", smtLoCo
 
 smtBearSig = smtBear1 or smtBear2
 smtBullSig = smtBull1 or smtBull2
+if smtBearSig or smtBullSig
+    smtCount += 1
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 4) Sessions
 // ═════════════════════════════════════════════════════════════════════════════
+type SessDraw
+    box  bx
+    line hi
+    line lo
+
 drawSession(bool en, string sess, color col, string nm) =>
+    var array<SessDraw> past = array.new<SessDraw>()
     var box   bx  = na
     var line  lhi = na
     var line  llo = na
-    var label lb  = na
     var float hi  = na
     var float lo  = na
     bool inSess = en and sesShow and not na(time(timeframe.period, sess, sesTz))
@@ -408,6 +453,12 @@ drawSession(bool en, string sess, color col, string nm) =>
                  style = lineStyle(sesLineStyle), width = sesLineWidth)
             llo := line.new(bar_index, low,  bar_index, low,  color = col,
                  style = lineStyle(sesLineStyle), width = sesLineWidth)
+        array.push(past, SessDraw.new(bx, lhi, llo))
+        if array.size(past) > sesKeep
+            SessDraw old = array.shift(past)
+            box.delete(old.bx)
+            line.delete(old.hi)
+            line.delete(old.lo)
     else if inSess
         hi := math.max(hi, high)
         lo := math.min(lo, low)
@@ -423,12 +474,13 @@ drawSession(bool en, string sess, color col, string nm) =>
         // Session closed: keep dragging its high/low forward.
         line.set_x2(lhi, bar_index)
         line.set_x2(llo, bar_index)
-    true
+    inSess
 
-drawSession(s1On, s1Time, s1Col, "Asia")
-drawSession(s2On, s2Time, s2Col, "London")
-drawSession(s3On, s3Time, s3Col, "NY AM")
-drawSession(s4On, s4Time, s4Col, "NY PM")
+inAsia = drawSession(s1On, s1Time, s1Col, "Asia")
+inLdn  = drawSession(s2On, s2Time, s2Col, "London")
+inNYam = drawSession(s3On, s3Time, s3Col, "NY AM")
+inNYpm = drawSession(s4On, s4Time, s4Col, "NY PM")
+activeSes = inAsia ? "Asia" : inLdn ? "London" : inNYam ? "NY AM" : inNYpm ? "NY PM" : "—"
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 5) Previous D / W / M high & low
@@ -437,10 +489,13 @@ drawSession(s4On, s4Time, s4Col, "NY PM")
 [pwhV, pwlV] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [pmhV, pmlV] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 
+// Horizontal levels are only ever needed on the last bar. Creating them there
+// (rather than early in history) keeps them newest, so the drawing cap never
+// evicts them.
 lvl(bool en, float price, int fromBar, color col, string txt, string st, int lw) =>
     var line  ln = na
     var label lb = na
-    if en and not na(price)
+    if barstate.islast and en and not na(price)
         if na(ln)
             ln := line.new(fromBar, price, bar_index + 1, price, color = col, width = lw, style = st)
             lb := label.new(bar_index + 1, price, txt, style = label.style_label_left,
@@ -450,6 +505,11 @@ lvl(bool en, float price, int fromBar, color col, string txt, string st, int lw)
             line.set_xy2(ln, bar_index + 1, price)
             label.set_xy(lb, bar_index + 1, price)
             label.set_text(lb, txt)
+    else if barstate.islast and not na(ln)
+        line.delete(ln)
+        label.delete(lb)
+        ln := na
+        lb := na
     ln
 
 lvl(pdOn, pdhV, dStart, pdCol, htfLabels ? "PDH" : "", lineStyle(pdStyle), pdWidth)
@@ -505,6 +565,37 @@ lvl(pdaSub, fib(0.382), rStart, pdaSubCol, pdaTxt("0.382"),       subS, pdaSubWi
 lvl(pdaOn, fib(0.295), rStart, pdaOteCol, pdaTxt("OTE 0.295"),    oteS, pdaOteWidth)
 lvl(pdaSub, fib(0.210), rStart, pdaSubCol, pdaTxt("0.21"),        subS, pdaSubWidth)
 lvl(pdaOn, fib(0.000), rStart, pdaBndCol, pdaTxt("Discount 0.0"), bndS, pdaBndWidth)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 7) Status table
+// ═════════════════════════════════════════════════════════════════════════════
+tblPos = switch dashPos
+    "Top left"      => position.top_left
+    "Bottom right"  => position.bottom_right
+    "Bottom left"   => position.bottom_left
+    => position.top_right
+
+var table dash = table.new(tblPos, 2, 7, border_width = 1)
+
+dashRow(int r, string k, string v) =>
+    table.cell(dash, 0, r, k, text_color = dashTxtCol, text_size = size.tiny,
+         text_halign = text.align_left,  bgcolor = dashBgCol)
+    table.cell(dash, 1, r, v, text_color = dashTxtCol, text_size = size.tiny,
+         text_halign = text.align_right, bgcolor = dashBgCol)
+
+px(float v) => na(v) ? "—" : str.tostring(v, format.mintick)
+
+if dashOn and barstate.islast
+    float eq = fib(0.5)
+    string bias = na(eq) ? "—" : close > eq ? "Premium" : close < eq ? "Discount" : "EQ"
+    dashRow(0, "ICT TOOLKIT",     timeframe.period)
+    dashRow(1, "Live FVG / IFVG", str.tostring(array.size(gaps)))
+    dashRow(2, "Last CISD",       na(lastCisdBar) ? "—" :
+         lastCisdDir + " · " + str.tostring(bar_index - lastCisdBar) + " bars ago")
+    dashRow(3, "SMT signals",     str.tostring(smtCount))
+    dashRow(4, "Session",         activeSes)
+    dashRow(5, "PDH / PDL",       px(pdhV) + " / " + px(pdlV))
+    dashRow(6, "PD bias",         bias)
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Alerts

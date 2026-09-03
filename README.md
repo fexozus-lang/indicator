@@ -33,6 +33,22 @@ Every drawing exposes **colour + line style (Solid / Dashed / Dotted) + width** 
 
 Labels are drawn as floating text (`label.style_none`) rather than bubbles, so they sit beside the level instead of covering price.
 
+## Status table
+
+A small dashboard (top-right by default, movable) reports what the script is actually seeing: live FVG/IFVG count, how many bars since the last CISD and its direction, cumulative SMT signals, the active session, PDH/PDL, and whether price is in premium or discount. If something isn't drawing, this tells you whether the logic fired or not.
+
+## Drawing budget
+
+TradingView keeps only the newest **500 boxes, 500 lines and 500 labels** per script and silently discards the oldest. Every module is therefore bounded:
+
+- FVG/IFVG zones — `Max live gaps kept` (default 20)
+- CISD levels — `Max CISD levels kept` (default 20)
+- SMT marks — `Max SMT marks kept` (default 20)
+- Session boxes/lines — `Sessions kept per type` (default 10, so 40 sessions total)
+- Previous D/W/M and PD array levels are drawn **only on the last bar**, so they are always the newest objects and can never be evicted.
+
+Raise the retention inputs if you want more history on screen; the totals above leave plenty of headroom.
+
 ## Repainting
 
 Everything that changes structure is gated on bar close:
