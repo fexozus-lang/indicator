@@ -1,455 +1,109 @@
 //@version=6
-// ICT Toolkit — FVG / IFVG / CISD / SMT / Sessions / PD Arrays
-// Single-file TradingView indicator.
-indicator("ICT Toolkit — FVG / IFVG / CISD / SMT", shorttitle = "ICT Toolkit", overlay = true,
+// ICT Toolkit — incremental build. Verified working so far:
+//   sessions, previous D/W/M, PD arrays.               Still to add: CISD, SMT.
+// Levels use plot() rather than line objects, so they cannot be evicted by
+// TradingView's 500-drawing cap and cannot be hidden off-screen.
+indicator("ICT Toolkit (build)", shorttitle = "ICT Build", overlay = true,
      max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500,
      max_bars_back = 1000)
 
-const string G_FVG  = "Fair Value Gaps / IFVG"
-const string G_CISD = "CISD"
-const string G_SMT  = "SMT Divergence"
-const string G_SES  = "Sessions"
-const string G_HTF  = "Previous D / W / M Levels"
-const string G_PD   = "PD Arrays (Premium / Discount / OTE)"
-const string G_GEN  = "Dashboard"
+const string G_SES = "Sessions"
+const string G_HTF = "Previous D / W / M"
+const string G_PD  = "PD Array"
+const string G_GEN = "Dashboard"
 
-// ═════════════════════════════════════════════════════════════════════════════
-// Inputs
-// ═════════════════════════════════════════════════════════════════════════════
+// ── Sessions ─────────────────────────────────────────────────────────────────
+sesShow   = input.bool(true, "Show sessions",           group = G_SES)
+sesTz     = input.string("America/New_York", "Timezone", group = G_SES)
+sesKeep   = input.int(10, "Sessions kept per type",     group = G_SES, minval = 1, maxval = 50)
 
-// ── FVG ──
-fvgShow      = input.bool(true,  "Show FVG",                       group = G_FVG)
-fvgDisp      = input.bool(true,  "Require displacement candle",     group = G_FVG, tooltip = "The middle candle must close in the direction of the gap.")
-fvgMinAtr    = input.float(0.0,  "Min gap size (× ATR200)",         group = G_FVG, minval = 0, step = 0.05)
-fvgBoxStyle  = input.string("Solid", "Zone border",   options = ["Solid", "Dashed", "Dotted"], group = G_FVG, inline = "fb")
-fvgBoxWidth  = input.int(1,     "W",                  group = G_FVG, inline = "fb", minval = 0, maxval = 4)
-fvgShowCE    = input.bool(true, "Show consequent encroachment (CE)", group = G_FVG)
-fvgCEStyle   = input.string("Dotted", "CE line",      options = ["Solid", "Dashed", "Dotted"], group = G_FVG, inline = "fce")
-fvgCEWidth   = input.int(1,     "W",                  group = G_FVG, inline = "fce", minval = 1, maxval = 4)
-fvgMax       = input.int(20,     "Max live gaps kept",              group = G_FVG, minval = 1, maxval = 100)
-ifvgShow     = input.bool(true,  "Invert mitigated FVG into IFVG",  group = G_FVG)
-fvgLabelMode = input.string("IFVG only", "Zone labels", options = ["None", "IFVG only", "All"], group = G_FVG)
-fvgLabelCol  = input.color(#5d606b, "Zone label text",                group = G_FVG)
-fvgBullCol   = input.color(color.new(#089981, 75), "Bullish FVG",   group = G_FVG, inline = "fc")
-fvgBearCol   = input.color(color.new(#f23645, 75), "Bearish FVG",   group = G_FVG, inline = "fc")
-ifvgBullCol  = input.color(color.new(#26c6da, 72), "Bullish IFVG",  group = G_FVG, inline = "ic")
-ifvgBearCol  = input.color(color.new(#ff7043, 72), "Bearish IFVG",  group = G_FVG, inline = "ic")
+sesBoxOn  = input.bool(true, "Session boxes",           group = G_SES, inline = "bx")
+sesFillTr = input.int(85,    "Fill transp",             group = G_SES, inline = "bx", minval = 0, maxval = 100)
 
-// ── CISD ──
-cisdShow     = input.bool(true,  "Show CISD",                       group = G_CISD)
-cisdConfirm  = input.bool(true,  "Confirm on bar close",            group = G_CISD, tooltip = "Off = marks intrabar the moment price trades through the level (will repaint until the bar closes).")
-cisdMinRun   = input.int(1,      "Min candles in opposing run",     group = G_CISD, minval = 1)
-cisdExtend   = input.int(12,     "Extend CISD line (bars)",         group = G_CISD, minval = 0)
-cisdPending  = input.bool(true,  "Show pending CISD level",          group = G_CISD, tooltip = "Draws the open of the current opposing run live, before it is broken, so you can see the level price has to close through.")
-cisdPendStyl = input.string("Dotted", "Pending line",  options = ["Solid", "Dashed", "Dotted"], group = G_CISD, inline = "cp")
-cisdPendWid  = input.int(1,     "W",                   group = G_CISD, inline = "cp", minval = 1, maxval = 4)
-cisdPendTr   = input.int(45,    "Transp",              group = G_CISD, inline = "cp", minval = 0, maxval = 100)
-cisdSweep    = input.bool(false, "Require liquidity sweep",          group = G_CISD, tooltip = "Only mark the CISD if the opposing run first took out the swing low (bullish) / swing high (bearish) that existed when the run began.")
-cisdSwingLen = input.int(5,     "Sweep swing length",                group = G_CISD, minval = 1)
-cisdKeep     = input.int(20,    "Max CISD levels kept",              group = G_CISD, minval = 1, maxval = 100)
-cisdStyle    = input.string("Solid", "CISD line",     options = ["Solid", "Dashed", "Dotted"], group = G_CISD, inline = "cl")
-cisdWidth    = input.int(1,     "W",                  group = G_CISD, inline = "cl", minval = 1, maxval = 4)
-cisdBullCol  = input.color(#3b82f6, "Bullish CISD",                 group = G_CISD, inline = "cc")
-cisdBearCol  = input.color(#3b82f6, "Bearish CISD",                 group = G_CISD, inline = "cc")
-cisdLabels   = input.bool(true,     "Show \"CISD\" label",           group = G_CISD)
-
-// ── SMT ──
-smtShow      = input.bool(true,  "Show SMT divergence",             group = G_SMT)
-smtPiv       = input.int(3,      "Swing pivot length",              group = G_SMT, minval = 1, tooltip = "Smaller = faster/noisier. A pivot confirms this many bars after it prints.")
-smt1On       = input.bool(true,  "Correlated symbol 1",             group = G_SMT, inline = "s1")
-smt1Sym      = input.symbol("CME_MINI:NQ1!", "",                    group = G_SMT, inline = "s1")
-smt2On       = input.bool(false, "Correlated symbol 2",             group = G_SMT, inline = "s2")
-smt2Sym      = input.symbol("CME_MINI:YM1!", "",                    group = G_SMT, inline = "s2")
-smtKeep      = input.int(20,    "Max SMT marks kept",               group = G_SMT, minval = 1, maxval = 100)
-smtStyle     = input.string("Solid", "SMT connector",  options = ["Solid", "Dashed", "Dotted"], group = G_SMT, inline = "sl")
-smtWidth     = input.int(1,     "W",                  group = G_SMT, inline = "sl", minval = 1, maxval = 4)
-smtAutoCol   = input.bool(true,  "Match chart text colour",         group = G_SMT, tooltip = "Draws the SMT connector in the chart's foreground colour so it reads on light and dark themes.")
-smtBearCol   = input.color(#f23645, "Bearish SMT (at highs)",       group = G_SMT, inline = "sc")
-smtBullCol   = input.color(#089981, "Bullish SMT (at lows)",        group = G_SMT, inline = "sc")
-
-// ── Sessions ──
-sesShow      = input.bool(true,  "Show sessions",                   group = G_SES)
-sesTz        = input.string("America/New_York", "Session timezone", group = G_SES)
-sesKeep      = input.int(10,    "Sessions kept per type",           group = G_SES, minval = 1, maxval = 50, tooltip = "TradingView caps a script at 500 boxes / lines / labels. Keeping older sessions forever would evict the level lines, so old session drawings are removed.")
-sesBoxStyle  = input.string("Solid",  "Session box border", options = ["Solid", "Dashed", "Dotted"], group = G_SES, inline = "sb")
-sesBoxWidth  = input.int(1,     "W",                  group = G_SES, inline = "sb", minval = 0, maxval = 4)
-sesBoxOn     = input.bool(true, "Session boxes",       group = G_SES, inline = "sbx")
-sesFillTr    = input.int(85,    "Fill transp",        group = G_SES, inline = "sbx", minval = 0, maxval = 100)
-sesLines     = input.bool(true, "Session high/low lines", group = G_SES)
-sesLineStyle = input.string("Dotted", "H/L line",     options = ["Solid", "Dashed", "Dotted"], group = G_SES, inline = "sl2")
-sesLineWidth = input.int(1,     "W",                  group = G_SES, inline = "sl2", minval = 1, maxval = 4)
-sesExt       = input.string("Until next session", "Extend",
+sesLineOn = input.bool(true, "Session high/low lines",  group = G_SES)
+sesLineSt = input.string("Dotted", "H/L line", options = ["Solid", "Dashed", "Dotted"], group = G_SES, inline = "hl")
+sesLineWd = input.int(1,     "W",                       group = G_SES, inline = "hl", minval = 1, maxval = 4)
+sesExt    = input.string("Until next session", "Extend",
      options = ["While session is open", "Until next session", "To right edge"], group = G_SES)
-sesLbl       = input.bool(true, "Label session H/L",  group = G_SES, inline = "slb")
-sesLblCol    = input.color(#b2b5be, "",               group = G_SES, inline = "slb")
-s1On         = input.bool(true,  "Asia",     group = G_SES, inline = "a")
-s1Time       = input.session("2000-0000", "", group = G_SES, inline = "a")
-s1Col        = input.color(#9c27b0, "",       group = G_SES, inline = "a")
-s2On         = input.bool(true,  "London",   group = G_SES, inline = "b")
-s2Time       = input.session("0200-0500", "", group = G_SES, inline = "b")
-s2Col        = input.color(#2962ff, "",       group = G_SES, inline = "b")
-s3On         = input.bool(true,  "NY AM",    group = G_SES, inline = "c")
-s3Time       = input.session("0930-1100", "", group = G_SES, inline = "c")
-s3Col        = input.color(#ff9800, "",       group = G_SES, inline = "c")
-s4On         = input.bool(true,  "NY PM",    group = G_SES, inline = "d")
-s4Time       = input.session("1330-1600", "", group = G_SES, inline = "d")
-s4Col        = input.color(#607d8b, "",       group = G_SES, inline = "d")
+sesLbl    = input.bool(true, "Label session high/low",  group = G_SES, inline = "lb")
+sesLblCol = input.color(#b2b5be, "",                    group = G_SES, inline = "lb")
+sesLblWhich = input.string("Newest only", "Label", options = ["Newest only", "All kept sessions"], group = G_SES, inline = "lb2")
+sesLblSize  = input.string("Tiny", "", options = ["Tiny", "Small", "Normal"], group = G_SES, inline = "lb2")
+sesLblPx    = input.bool(false, "Include price in label", group = G_SES)
 
-// ── Previous HTF levels ──
-pdOn         = input.bool(true,  "Prev Day H/L",   group = G_HTF, inline = "h1")
-pdCol        = input.color(#787b86, "",            group = G_HTF, inline = "h1")
-pdStyle      = input.string("Solid",  "", options = ["Solid", "Dashed", "Dotted"], group = G_HTF, inline = "h1")
-pdWidth      = input.int(1, "W",                   group = G_HTF, inline = "h1", minval = 1, maxval = 4)
-pwOn         = input.bool(true,  "Prev Week H/L",  group = G_HTF, inline = "h2")
-pwCol        = input.color(#2962ff, "",            group = G_HTF, inline = "h2")
-pwStyle      = input.string("Dashed", "", options = ["Solid", "Dashed", "Dotted"], group = G_HTF, inline = "h2")
-pwWidth      = input.int(1, "W",                   group = G_HTF, inline = "h2", minval = 1, maxval = 4)
-pmOn         = input.bool(false, "Prev Month H/L", group = G_HTF, inline = "h3")
-pmCol        = input.color(#9c27b0, "",            group = G_HTF, inline = "h3")
-pmStyle      = input.string("Dotted", "", options = ["Solid", "Dashed", "Dotted"], group = G_HTF, inline = "h3")
-pmWidth      = input.int(2, "W",                   group = G_HTF, inline = "h3", minval = 1, maxval = 4)
-htfLabels    = input.bool(true,  "Show level labels",  group = G_HTF)
+s1On = input.bool(true, "Asia",   group = G_SES, inline = "a")
+s1T  = input.session("2000-0000", "", group = G_SES, inline = "a")
+s1C  = input.color(#9c27b0, "",       group = G_SES, inline = "a")
+s2On = input.bool(true, "London", group = G_SES, inline = "b")
+s2T  = input.session("0200-0500", "", group = G_SES, inline = "b")
+s2C  = input.color(#2962ff, "",       group = G_SES, inline = "b")
+s3On = input.bool(true, "NY AM",  group = G_SES, inline = "c")
+s3T  = input.session("0930-1100", "", group = G_SES, inline = "c")
+s3C  = input.color(#ff9800, "",       group = G_SES, inline = "c")
+s4On = input.bool(true, "NY PM",  group = G_SES, inline = "d")
+s4T  = input.session("1330-1600", "", group = G_SES, inline = "d")
+s4C  = input.color(#607d8b, "",       group = G_SES, inline = "d")
 
-// ── PD arrays ──
-pdaOn        = input.bool(true,  "Show PD array",                   group = G_PD)
-pdaRange     = input.string("Previous Day", "Range", options = ["Previous Day", "Previous Week", "Previous Month", "Current Day"], group = G_PD)
-pdaOTEonly   = input.bool(false, "OTE + equilibrium only",          group = G_PD)
-pdaLabels    = input.bool(true,  "Show level labels",               group = G_PD)
-pdaBndCol    = input.color(#787b86, "Boundary 0.0 / 1.0",           group = G_PD, inline = "p1")
-pdaBndStyle  = input.string("Solid",  "", options = ["Solid", "Dashed", "Dotted"], group = G_PD, inline = "p1")
-pdaBndWidth  = input.int(1, "W",                                    group = G_PD, inline = "p1", minval = 1, maxval = 4)
-pdaEqCol     = input.color(#f23645, "Equilibrium 0.5",              group = G_PD, inline = "p2")
-pdaEqStyle   = input.string("Solid",  "", options = ["Solid", "Dashed", "Dotted"], group = G_PD, inline = "p2")
-pdaEqWidth   = input.int(2, "W",                                    group = G_PD, inline = "p2", minval = 1, maxval = 4)
-pdaOteCol    = input.color(#089981, "OTE 0.705 / 0.295",            group = G_PD, inline = "p3")
-pdaOteStyle  = input.string("Dashed", "", options = ["Solid", "Dashed", "Dotted"], group = G_PD, inline = "p3")
-pdaOteWidth  = input.int(1, "W",                                    group = G_PD, inline = "p3", minval = 1, maxval = 4)
-pdaSubCol    = input.color(#b2b5be, "Other fib levels",             group = G_PD, inline = "p4")
-pdaSubStyle  = input.string("Dotted", "", options = ["Solid", "Dashed", "Dotted"], group = G_PD, inline = "p4")
-pdaSubWidth  = input.int(1, "W",                                    group = G_PD, inline = "p4", minval = 1, maxval = 4)
+// ── Previous D / W / M ───────────────────────────────────────────────────────
+pdOn  = input.bool(true,  "Prev Day H/L",   group = G_HTF, inline = "h1")
+pdC   = input.color(#787b86, "",            group = G_HTF, inline = "h1")
+pdW   = input.int(1, "W",                   group = G_HTF, inline = "h1", minval = 1, maxval = 4)
+pwOn  = input.bool(true,  "Prev Week H/L",  group = G_HTF, inline = "h2")
+pwC   = input.color(#2962ff, "",            group = G_HTF, inline = "h2")
+pwW   = input.int(1, "W",                   group = G_HTF, inline = "h2", minval = 1, maxval = 4)
+pmOn  = input.bool(false, "Prev Month H/L", group = G_HTF, inline = "h3")
+pmC   = input.color(#9c27b0, "",            group = G_HTF, inline = "h3")
+pmW   = input.int(2, "W",                   group = G_HTF, inline = "h3", minval = 1, maxval = 4)
 
-// ── Dashboard ──
-dashOn       = input.bool(true,  "Show status table",               group = G_GEN)
-dashPos      = input.string("Bottom right", "Position", options = ["Bottom right", "Bottom left", "Top right", "Top left"], group = G_GEN)
-dashTxtCol   = input.color(#b2b5be, "Text",                         group = G_GEN, inline = "d")
-dashBgCol    = input.color(color.new(#131722, 20), "Background",    group = G_GEN, inline = "d")
+// ── PD array ─────────────────────────────────────────────────────────────────
+pdaOn    = input.bool(true, "Show PD array", group = G_PD)
+pdaRange = input.string("Previous Day", "Range",
+     options = ["Previous Day", "Previous Week", "Previous Month", "Current Day"], group = G_PD)
+pdaBndC  = input.color(#787b86, "Boundary 0.0 / 1.0", group = G_PD)
+pdaEqC   = input.color(#f23645, "Equilibrium 0.5",    group = G_PD)
+pdaOteC  = input.color(#089981, "OTE 0.705 / 0.295",  group = G_PD)
+pdaSubOn = input.bool(true, "Show 0.618 / 0.382",     group = G_PD, inline = "ps")
+pdaSubC  = input.color(#b2b5be, "",                   group = G_PD, inline = "ps")
 
-// ═════════════════════════════════════════════════════════════════════════════
-// Shared
-// ═════════════════════════════════════════════════════════════════════════════
-atr200 = ta.atr(200)
+// ── Dashboard ────────────────────────────────────────────────────────────────
+dashOn     = input.bool(true, "Show status table", group = G_GEN)
+dashPos    = input.string("Bottom right", "Position",
+     options = ["Bottom right", "Bottom left", "Top right", "Top left"], group = G_GEN)
+dashTxtCol = input.color(#e0e3eb, "Text",       group = G_GEN, inline = "d")
+dashBgCol  = input.color(#1e222d, "Background", group = G_GEN, inline = "d")
 
-// "Solid" / "Dashed" / "Dotted"  ->  a line.style_* constant.
+lblSize(string name) =>
+    switch name
+        "Normal" => size.normal
+        "Small"  => size.small
+        => size.tiny
+
 lineStyle(string name) =>
     switch name
         "Dashed" => line.style_dashed
         "Dotted" => line.style_dotted
         => line.style_solid
 
-var int dStart = 0
-var int wStart = 0
-var int mStart = 0
-if timeframe.change("D")
-    dStart := bar_index
-if timeframe.change("W")
-    wStart := bar_index
-if timeframe.change("M")
-    mStart := bar_index
-
 // ═════════════════════════════════════════════════════════════════════════════
-// 1) FVG + IFVG
-// ═════════════════════════════════════════════════════════════════════════════
-type Gap
-    box   bx
-    line  ce
-    label lb
-    float top
-    float btm
-    bool  bull
-    bool  inv
-
-var array<Gap> gaps = array.new<Gap>()
-
-bullRaw = low > high[2] and (not fvgDisp or close[1] > open[1])
-bearRaw = high < low[2] and (not fvgDisp or close[1] < open[1])
-
-bullTop = low
-bullBtm = high[2]
-bearTop = low[2]
-bearBtm = high
-
-wantLabel(bool inv) => fvgLabelMode == "All" or (fvgLabelMode == "IFVG only" and inv)
-
-sizeOk(float t, float b) => na(atr200) or fvgMinAtr <= 0 or (t - b) >= atr200 * fvgMinAtr
-
-newGap(float t, float b, bool isBull) =>
-    col = isBull ? fvgBullCol : fvgBearCol
-    line ceLn = na
-    if fvgShowCE
-        ceLn := line.new(bar_index - 2, math.avg(t, b), bar_index + 1, math.avg(t, b),
-             color = color.new(col, 20), style = lineStyle(fvgCEStyle), width = fvgCEWidth)
-    label zl = na
-    if wantLabel(false)
-        zl := label.new(bar_index + 4, math.avg(t, b), "FVG", style = label.style_none,
-             textcolor = fvgLabelCol, size = size.tiny)
-    Gap g = Gap.new(
-         bx  = box.new(bar_index - 2, t, bar_index + 1, b, border_color = color.new(col, 60),
-                 border_width = fvgBoxWidth, border_style = lineStyle(fvgBoxStyle), bgcolor = col),
-         ce  = ceLn, lb = zl, top = t, btm = b, bull = isBull, inv = false)
-    array.push(gaps, g)
-    if array.size(gaps) > fvgMax
-        Gap old = array.shift(gaps)
-        box.delete(old.bx)
-        if not na(old.ce)
-            line.delete(old.ce)
-        label.delete(old.lb)
-
-newBullFVG = fvgShow and bullRaw and sizeOk(bullTop, bullBtm) and barstate.isconfirmed
-newBearFVG = fvgShow and bearRaw and sizeOk(bearTop, bearBtm) and barstate.isconfirmed
-
-if newBullFVG
-    newGap(bullTop, bullBtm, true)
-if newBearFVG
-    newGap(bearTop, bearBtm, false)
-
-var bool newIFVG = false
-newIFVG := false
-
-if array.size(gaps) > 0
-    for i = array.size(gaps) - 1 to 0
-        Gap g = array.get(gaps, i)
-        // A zone is breached when a bar CLOSES through its far edge.
-        breached = barstate.isconfirmed and (g.bull ? close < g.btm : close > g.top)
-        if breached
-            if not g.inv and ifvgShow
-                // Mitigated FVG flips polarity and becomes an inverted FVG.
-                g.inv  := true
-                g.bull := not g.bull
-                icol   = g.bull ? ifvgBullCol : ifvgBearCol
-                box.set_bgcolor(g.bx, icol)
-                box.set_border_color(g.bx, color.new(icol, 50))
-                if not na(g.ce)
-                    line.set_color(g.ce, color.new(icol, 20))
-                if wantLabel(true)
-                    if na(g.lb)
-                        g.lb := label.new(bar_index + 4, math.avg(g.top, g.btm), "IFVG",
-                             style = label.style_none, textcolor = fvgLabelCol, size = size.tiny)
-                    else
-                        label.set_text(g.lb, "IFVG")
-                else
-                    label.delete(g.lb)
-                    g.lb := na
-                newIFVG := true
-            else
-                box.delete(g.bx)
-                if not na(g.ce)
-                    line.delete(g.ce)
-                label.delete(g.lb)
-                array.remove(gaps, i)
-        else
-            box.set_right(g.bx, bar_index + 1)
-            if not na(g.ce)
-                line.set_x2(g.ce, bar_index + 1)
-            if not na(g.lb)
-                label.set_xy(g.lb, bar_index + 4, math.avg(g.top, g.btm))
-
-// ═════════════════════════════════════════════════════════════════════════════
-// 2) CISD — Change In State of Delivery
-//    Bullish: close back above the OPEN of the first candle of the last
-//    consecutive down-close run. Bearish: mirror.
-// ═════════════════════════════════════════════════════════════════════════════
-var float bearRunOpen = na
-var int   bearRunBar  = na
-var int   bearRunLen  = 0
-var bool  bearRunUsed = false
-var float bullRunOpen = na
-var int   bullRunBar  = na
-var int   bullRunLen  = 0
-var bool  bullRunUsed = false
-// Liquidity reference: the swing that existed when the run began, and whether
-// the run traded through it.
-var float bearRunRef   = na
-var bool  bearRunSwept = false
-var float bullRunRef   = na
-var bool  bullRunSwept = false
-var float lastPivLo    = na
-var float lastPivHi    = na
-
-pvLo = ta.pivotlow(low,   cisdSwingLen, cisdSwingLen)
-pvHi = ta.pivothigh(high, cisdSwingLen, cisdSwingLen)
-if not na(pvLo)
-    lastPivLo := pvLo
-if not na(pvHi)
-    lastPivHi := pvHi
-
-isDn = close < open
-isUp = close > open
-
-if barstate.isconfirmed
-    if isDn
-        if not (close[1] < open[1])
-            bearRunOpen   := open
-            bearRunBar    := bar_index
-            bearRunLen    := 1
-            bearRunUsed   := false
-            bearRunRef    := lastPivLo
-            bearRunSwept  := false
-        else
-            bearRunLen += 1
-    if isUp
-        if not (close[1] > open[1])
-            bullRunOpen   := open
-            bullRunBar    := bar_index
-            bullRunLen    := 1
-            bullRunUsed   := false
-            bullRunRef    := lastPivHi
-            bullRunSwept  := false
-        else
-            bullRunLen += 1
-    // A run stays "swept" once it has traded through the reference swing.
-    if not na(bearRunRef) and low < bearRunRef
-        bearRunSwept := true
-    if not na(bullRunRef) and high > bullRunRef
-        bullRunSwept := true
-
-live = cisdConfirm ? barstate.isconfirmed : true
-
-bullCISD = cisdShow and live and not bearRunUsed and not na(bearRunOpen) and bearRunLen >= cisdMinRun
-     and close > bearRunOpen and (not cisdSweep or bearRunSwept)
-bearCISD = cisdShow and live and not bullRunUsed and not na(bullRunOpen) and bullRunLen >= cisdMinRun
-     and close < bullRunOpen and (not cisdSweep or bullRunSwept)
-
-// Drawings are capped: TradingView keeps only the newest 500 boxes/lines/labels
-// per script, and silently discards the oldest. Left unbounded, the marks from
-// years of history would evict the level lines drawn once at the start.
-var array<line>  cisdLines = array.new<line>()
-var array<label> cisdLabs  = array.new<label>()
-var int    lastCisdBar = na
-var string lastCisdDir = ""
-
-markCISD(float lvlPrice, int fromBar, color col) =>
-    array.push(cisdLines, line.new(fromBar, lvlPrice, bar_index + cisdExtend, lvlPrice,
-         color = col, width = cisdWidth, style = lineStyle(cisdStyle)))
-    if cisdLabels
-        array.push(cisdLabs, label.new(bar_index + cisdExtend + 3, lvlPrice, "CISD",
-             style = label.style_none, textcolor = col, size = size.tiny))
-    if array.size(cisdLines) > cisdKeep
-        line.delete(array.shift(cisdLines))
-    if array.size(cisdLabs) > cisdKeep
-        label.delete(array.shift(cisdLabs))
-
-if bullCISD
-    bearRunUsed := true
-    markCISD(bearRunOpen, bearRunBar, cisdBullCol)
-    lastCisdBar := bar_index
-    lastCisdDir := "Bull"
-if bearCISD
-    bullRunUsed := true
-    markCISD(bullRunOpen, bullRunBar, cisdBearCol)
-    lastCisdBar := bar_index
-    lastCisdDir := "Bear"
-
-// Live view of the level price still has to close through.
-pending(line ln, bool active, float price, int fromBar, color col) =>
-    line out = ln
-    if active
-        if na(out)
-            out := line.new(fromBar, price, bar_index + cisdExtend, price, color = color.new(col, cisdPendTr),
-                 style = lineStyle(cisdPendStyl), width = cisdPendWid)
-        else
-            line.set_xy1(out, fromBar, price)
-            line.set_xy2(out, bar_index + cisdExtend, price)
-    else if not na(out)
-        line.delete(out)
-        out := na
-    out
-
-var line pendBullLn = na
-var line pendBearLn = na
-bullPendOn = cisdShow and cisdPending and not na(bearRunOpen) and not bearRunUsed and bearRunLen >= cisdMinRun
-bearPendOn = cisdShow and cisdPending and not na(bullRunOpen) and not bullRunUsed and bullRunLen >= cisdMinRun
-pendBullLn := pending(pendBullLn, bullPendOn, bearRunOpen, bearRunBar, cisdBullCol)
-pendBearLn := pending(pendBearLn, bearPendOn, bullRunOpen, bullRunBar, cisdBearCol)
-
-// ═════════════════════════════════════════════════════════════════════════════
-// 3) SMT divergence
-// ═════════════════════════════════════════════════════════════════════════════
-sym1 = smt1On ? smt1Sym : syminfo.tickerid
-sym2 = smt2On ? smt2Sym : syminfo.tickerid
-[c1h, c1l] = request.security(sym1, timeframe.period, [high, low], barmerge.gaps_off, barmerge.lookahead_off, ignore_invalid_symbol = true)
-[c2h, c2l] = request.security(sym2, timeframe.period, [high, low], barmerge.gaps_off, barmerge.lookahead_off, ignore_invalid_symbol = true)
-
-phv = ta.pivothigh(high, smtPiv, smtPiv)
-plv = ta.pivotlow(low,  smtPiv, smtPiv)
-
-// Each call site keeps its own persistent state.
-var array<line>  smtLines = array.new<line>()
-var array<label> smtLabs  = array.new<label>()
-var int smtCount = 0
-
-smtKeepCapped(line ln, label lb) =>
-    array.push(smtLines, ln)
-    array.push(smtLabs, lb)
-    if array.size(smtLines) > smtKeep
-        line.delete(array.shift(smtLines))
-        label.delete(array.shift(smtLabs))
-
-smtScan(float pivVal, float corrVal, bool isHigh, bool enabled, string tag, color col) =>
-    var float prevPiv  = na
-    var float prevCorr = na
-    var int   prevBar  = na
-    bool sig = false
-    if not na(pivVal) and not na(corrVal)
-        int curBar = bar_index - smtPiv
-        if enabled and not na(prevPiv) and not na(prevCorr)
-            bool chartHigher = pivVal  > prevPiv
-            bool corrHigher  = corrVal > prevCorr
-            if chartHigher != corrHigher
-                sig := true
-                float pad = nz(atr200, 0) * 0.5
-                smtKeepCapped(
-                     line.new(prevBar, prevPiv, curBar, pivVal, color = col,
-                         width = smtWidth, style = lineStyle(smtStyle)),
-                     label.new(math.round(math.avg(prevBar, curBar)),
-                         isHigh ? math.max(prevPiv, pivVal) + pad : math.min(prevPiv, pivVal) - pad,
-                         tag, style = label.style_none, textcolor = col, size = size.tiny))
-        prevPiv  := pivVal
-        prevCorr := corrVal
-        prevBar  := curBar
-    sig
-
-smtHiCol = smtAutoCol ? chart.fg_color : smtBearCol
-smtLoCol = smtAutoCol ? chart.fg_color : smtBullCol
-
-smtBear1 = smtScan(phv, c1h[smtPiv], true,  smtShow and smt1On, "SMT", smtHiCol)
-smtBull1 = smtScan(plv, c1l[smtPiv], false, smtShow and smt1On, "SMT", smtLoCol)
-smtBear2 = smtScan(phv, c2h[smtPiv], true,  smtShow and smt2On, "SMT²", smtHiCol)
-smtBull2 = smtScan(plv, c2l[smtPiv], false, smtShow and smt2On, "SMT²", smtLoCol)
-
-smtBearSig = smtBear1 or smtBear2
-smtBullSig = smtBull1 or smtBull2
-if smtBearSig or smtBullSig
-    smtCount += 1
-
-// ═════════════════════════════════════════════════════════════════════════════
-// 4) Sessions
+// Sessions
 // ═════════════════════════════════════════════════════════════════════════════
 // "Am I in the session" and "did it just start" are computed at GLOBAL scope.
-// Reading [1] on a variable local to a function is what stops Pine sizing its
-// history buffer, so the flags are passed in as plain parameters instead.
-inA = sesShow and s1On and not na(time(timeframe.period, s1Time, sesTz))
-inL = sesShow and s2On and not na(time(timeframe.period, s2Time, sesTz))
-inM = sesShow and s3On and not na(time(timeframe.period, s3Time, sesTz))
-inP = sesShow and s4On and not na(time(timeframe.period, s4Time, sesTz))
+// Referencing [1] on a variable local to a function is what makes Pine unable
+// to size its history buffer, so it is deliberately avoided here.
+inA = sesShow and s1On and not na(time(timeframe.period, s1T, sesTz))
+inL = sesShow and s2On and not na(time(timeframe.period, s2T, sesTz))
+inM = sesShow and s3On and not na(time(timeframe.period, s3T, sesTz))
+inP = sesShow and s4On and not na(time(timeframe.period, s4T, sesTz))
 
 newA = inA and not inA[1]
 newL = inL and not inL[1]
 newM = inM and not inM[1]
 newP = inP and not inP[1]
 
-drawSession(bool active, bool isNew, color col, string nm) =>
-    var array<box>  bxs  = array.new<box>()
-    var array<line> lns  = array.new<line>()
+sessDraw(bool active, bool isNew, color col, string nm) =>
+    var array<box>   bxs = array.new<box>()
+    var array<line>  lns = array.new<line>()
+    var array<label> lbs = array.new<label>()
     var box   bx   = na
     var line  lh   = na
     var line  ll   = na
@@ -458,39 +112,45 @@ drawSession(bool active, bool isNew, color col, string nm) =>
     var float hi   = na
     var float lo   = na
     var int   sBar = na
+    var int   eBar = na
 
     if isNew
         hi   := high
         lo   := low
         sBar := bar_index
+        eBar := bar_index
         if sesBoxOn
             bx := box.new(bar_index, high, bar_index, low, border_color = color.new(col, 40),
-                 border_width = sesBoxWidth, border_style = lineStyle(sesBoxStyle),
                  bgcolor = color.new(col, sesFillTr), text = nm, text_size = size.tiny,
                  text_color = color.new(col, 25))
             array.push(bxs, bx)
             if array.size(bxs) > sesKeep
                 box.delete(array.shift(bxs))
-        if sesLines
+        if sesLineOn
             ext = sesExt == "To right edge" ? extend.right : extend.none
             lh := line.new(bar_index, high, bar_index, high, color = col,
-                 style = lineStyle(sesLineStyle), width = sesLineWidth, extend = ext)
+                 style = lineStyle(sesLineSt), width = sesLineWd, extend = ext)
             ll := line.new(bar_index, low,  bar_index, low,  color = col,
-                 style = lineStyle(sesLineStyle), width = sesLineWidth, extend = ext)
+                 style = lineStyle(sesLineSt), width = sesLineWd, extend = ext)
             array.push(lns, lh)
             array.push(lns, ll)
             if array.size(lns) > sesKeep * 2
                 line.delete(array.shift(lns))
                 line.delete(array.shift(lns))
-            // Only the newest session of each type is labelled, so the chart
-            // does not fill with text.
-            if sesLbl
-                label.delete(lbH)
-                label.delete(lbL)
-                lbH := label.new(bar_index, high, nm + " H", style = label.style_none,
-                     textcolor = sesLblCol, size = size.tiny)
-                lbL := label.new(bar_index, low,  nm + " L", style = label.style_none,
-                     textcolor = sesLblCol, size = size.tiny)
+        // Labels are independent of the lines -- you can have either, both or
+        // neither. Older labels stop being updated once a new session starts,
+        // so they simply freeze holding that session's final high and low.
+        if sesLbl
+            lbH := label.new(bar_index, high, "", style = label.style_none,
+                 textcolor = sesLblCol, size = lblSize(sesLblSize))
+            lbL := label.new(bar_index, low,  "", style = label.style_none,
+                 textcolor = sesLblCol, size = lblSize(sesLblSize))
+            array.push(lbs, lbH)
+            array.push(lbs, lbL)
+            int cap = sesLblWhich == "All kept sessions" ? sesKeep * 2 : 2
+            if array.size(lbs) > cap
+                label.delete(array.shift(lbs))
+                label.delete(array.shift(lbs))
     else if active
         hi := math.max(hi, high)
         lo := math.min(lo, low)
@@ -499,121 +159,88 @@ drawSession(bool active, bool isNew, color col, string nm) =>
             box.set_bottom(bx, lo)
             box.set_right(bx, bar_index)
 
-    // Lines run from the session open to wherever the extend mode says.
+    // How far this session's high and low reach to the right.
+    if active or sesExt == "Until next session"
+        eBar := bar_index
+
     if not na(lh)
-        bool grow = active or sesExt == "Until next session"
-        int  x2   = grow ? bar_index : line.get_x2(lh)
         line.set_xy1(lh, sBar, hi)
-        line.set_xy2(lh, x2, hi)
+        line.set_xy2(lh, eBar, hi)
         line.set_xy1(ll, sBar, lo)
-        line.set_xy2(ll, x2, lo)
-        if not na(lbH)
-            int lx = sesExt == "To right edge" ? bar_index + 3 : x2 + 3
-            label.set_xy(lbH, lx, hi)
-            label.set_xy(lbL, lx, lo)
+        line.set_xy2(ll, eBar, lo)
+
+    if not na(lbH)
+        int lx = sesExt == "To right edge" ? bar_index + 3 : eBar + 3
+        label.set_xy(lbH, lx, hi)
+        label.set_xy(lbL, lx, lo)
+        label.set_text(lbH, nm + " H" + (sesLblPx ? "  " + str.tostring(hi, format.mintick) : ""))
+        label.set_text(lbL, nm + " L" + (sesLblPx ? "  " + str.tostring(lo, format.mintick) : ""))
     active
 
-drawSession(inA, newA, s1Col, "Asia")
-drawSession(inL, newL, s2Col, "London")
-drawSession(inM, newM, s3Col, "NY AM")
-drawSession(inP, newP, s4Col, "NY PM")
+sessDraw(inA, newA, s1C, "Asia")
+sessDraw(inL, newL, s2C, "London")
+sessDraw(inM, newM, s3C, "NY AM")
+sessDraw(inP, newP, s4C, "NY PM")
 
 activeSes = inA ? "Asia" : inL ? "London" : inM ? "NY AM" : inP ? "NY PM" : "—"
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 5) Previous D / W / M high & low
+// Previous D / W / M
 // ═════════════════════════════════════════════════════════════════════════════
-[pdhV, pdlV] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
-[pwhV, pwlV] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
-[pmhV, pmlV] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 
-// Horizontal levels are only ever needed on the last bar. Creating them there
-// (rather than early in history) keeps them newest, so the drawing cap never
-// evicts them.
-lvl(bool en, float price, int fromBar, color col, string txt, string st, int lw) =>
-    var line  ln = na
-    var label lb = na
-    if barstate.islast and en and not na(price)
-        if na(ln)
-            ln := line.new(fromBar, price, bar_index + 1, price, color = col, width = lw, style = st)
-            lb := label.new(bar_index + 1, price, txt, style = label.style_label_left,
-                 color = color.new(col, 100), textcolor = col, size = size.tiny)
-        else
-            line.set_xy1(ln, fromBar, price)
-            line.set_xy2(ln, bar_index + 1, price)
-            label.set_xy(lb, bar_index + 1, price)
-            label.set_text(lb, txt)
-    else if barstate.islast and not na(ln)
-        line.delete(ln)
-        label.delete(lb)
-        ln := na
-        lb := na
-    ln
-
-lvl(pdOn, pdhV, dStart, pdCol, htfLabels ? "PDH" : "", lineStyle(pdStyle), pdWidth)
-lvl(pdOn, pdlV, dStart, pdCol, htfLabels ? "PDL" : "", lineStyle(pdStyle), pdWidth)
-lvl(pwOn, pwhV, wStart, pwCol, htfLabels ? "PWH" : "", lineStyle(pwStyle), pwWidth)
-lvl(pwOn, pwlV, wStart, pwCol, htfLabels ? "PWL" : "", lineStyle(pwStyle), pwWidth)
-lvl(pmOn, pmhV, mStart, pmCol, htfLabels ? "PMH" : "", lineStyle(pmStyle), pmWidth)
-lvl(pmOn, pmlV, mStart, pmCol, htfLabels ? "PML" : "", lineStyle(pmStyle), pmWidth)
+plot(pdOn ? pdh : na, "PDH", color = pdC, linewidth = pdW, style = plot.style_linebr)
+plot(pdOn ? pdl : na, "PDL", color = pdC, linewidth = pdW, style = plot.style_linebr)
+plot(pwOn ? pwh : na, "PWH", color = pwC, linewidth = pwW, style = plot.style_linebr)
+plot(pwOn ? pwl : na, "PWL", color = pwC, linewidth = pwW, style = plot.style_linebr)
+plot(pmOn ? pmh : na, "PMH", color = pmC, linewidth = pmW, style = plot.style_linebr)
+plot(pmOn ? pml : na, "PML", color = pmC, linewidth = pmW, style = plot.style_linebr)
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 6) PD arrays — premium / discount / equilibrium / OTE
+// PD array
 // ═════════════════════════════════════════════════════════════════════════════
-var float curDayHi = na
-var float curDayLo = na
+var float dayHi = na
+var float dayLo = na
 if timeframe.change("D")
-    curDayHi := high
-    curDayLo := low
+    dayHi := high
+    dayLo := low
 else
-    curDayHi := math.max(nz(curDayHi, high), high)
-    curDayLo := math.min(nz(curDayLo, low),  low)
+    dayHi := math.max(nz(dayHi, high), high)
+    dayLo := math.min(nz(dayLo, low),  low)
 
 rHi = switch pdaRange
-    "Previous Day"   => pdhV
-    "Previous Week"  => pwhV
-    "Previous Month" => pmhV
-    => curDayHi
+    "Previous Day"   => pdh
+    "Previous Week"  => pwh
+    "Previous Month" => pmh
+    => dayHi
 rLo = switch pdaRange
-    "Previous Day"   => pdlV
-    "Previous Week"  => pwlV
-    "Previous Month" => pmlV
-    => curDayLo
-rStart = switch pdaRange
-    "Previous Day"   => dStart
-    "Previous Week"  => wStart
-    "Previous Month" => mStart
-    => dStart
+    "Previous Day"   => pdl
+    "Previous Week"  => pwl
+    "Previous Month" => pml
+    => dayLo
 
 fib(float f) => na(rHi) or na(rLo) ? float(na) : rLo + (rHi - rLo) * f
 
-pdaTxt(string t) => pdaLabels ? t : ""
-bndS = lineStyle(pdaBndStyle)
-eqS  = lineStyle(pdaEqStyle)
-oteS = lineStyle(pdaOteStyle)
-subS = lineStyle(pdaSubStyle)
-pdaSub = pdaOn and not pdaOTEonly
-
-lvl(pdaOn, fib(1.000), rStart, pdaBndCol, pdaTxt("Premium 1.0"),  bndS, pdaBndWidth)
-lvl(pdaSub, fib(0.790), rStart, pdaSubCol, pdaTxt("0.79"),        subS, pdaSubWidth)
-lvl(pdaOn, fib(0.705), rStart, pdaOteCol, pdaTxt("OTE 0.705"),    oteS, pdaOteWidth)
-lvl(pdaSub, fib(0.618), rStart, pdaSubCol, pdaTxt("0.618"),       subS, pdaSubWidth)
-lvl(pdaOn, fib(0.500), rStart, pdaEqCol,  pdaTxt("EQ 0.5"),       eqS,  pdaEqWidth)
-lvl(pdaSub, fib(0.382), rStart, pdaSubCol, pdaTxt("0.382"),       subS, pdaSubWidth)
-lvl(pdaOn, fib(0.295), rStart, pdaOteCol, pdaTxt("OTE 0.295"),    oteS, pdaOteWidth)
-lvl(pdaSub, fib(0.210), rStart, pdaSubCol, pdaTxt("0.21"),        subS, pdaSubWidth)
-lvl(pdaOn, fib(0.000), rStart, pdaBndCol, pdaTxt("Discount 0.0"), bndS, pdaBndWidth)
+plot(pdaOn                ? fib(1.000) : na, "Premium 1.0",  color = pdaBndC, style = plot.style_linebr)
+plot(pdaOn                ? fib(0.705) : na, "OTE 0.705",    color = pdaOteC, style = plot.style_linebr)
+plot(pdaOn and pdaSubOn   ? fib(0.618) : na, "0.618",        color = pdaSubC, style = plot.style_linebr)
+plot(pdaOn                ? fib(0.500) : na, "EQ 0.5",       color = pdaEqC,  style = plot.style_linebr, linewidth = 2)
+plot(pdaOn and pdaSubOn   ? fib(0.382) : na, "0.382",        color = pdaSubC, style = plot.style_linebr)
+plot(pdaOn                ? fib(0.295) : na, "OTE 0.295",    color = pdaOteC, style = plot.style_linebr)
+plot(pdaOn                ? fib(0.000) : na, "Discount 0.0", color = pdaBndC, style = plot.style_linebr)
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 7) Status table
+// Status table
 // ═════════════════════════════════════════════════════════════════════════════
 tblPos = switch dashPos
-    "Top left"      => position.top_left
-    "Bottom right"  => position.bottom_right
-    "Bottom left"   => position.bottom_left
-    => position.top_right
+    "Bottom left" => position.bottom_left
+    "Top right"   => position.top_right
+    "Top left"    => position.top_left
+    => position.bottom_right
 
-var table dash = table.new(tblPos, 2, 7, border_width = 1)
+var table dash = table.new(tblPos, 2, 6, border_width = 1)
 
 dashRow(int r, string k, string v) =>
     table.cell(dash, 0, r, k, text_color = dashTxtCol, text_size = size.tiny,
@@ -625,23 +252,10 @@ px(float v) => na(v) ? "—" : str.tostring(v, format.mintick)
 
 if dashOn and barstate.islast
     float eq = fib(0.5)
-    string bias = na(eq) ? "—" : close > eq ? "Premium" : close < eq ? "Discount" : "EQ"
-    dashRow(0, "ICT TOOLKIT",     timeframe.period)
-    dashRow(1, "Live FVG / IFVG", str.tostring(array.size(gaps)))
-    dashRow(2, "Last CISD",       na(lastCisdBar) ? "—" :
-         lastCisdDir + " · " + str.tostring(bar_index - lastCisdBar) + " bars ago")
-    dashRow(3, "SMT signals",     str.tostring(smtCount))
-    dashRow(4, "Session",         activeSes)
-    dashRow(5, "PDH / PDL",       px(pdhV) + " / " + px(pdlV))
-    dashRow(6, "PD bias",         bias)
+    dashRow(0, "ICT LEVELS", timeframe.period)
+    dashRow(1, "Bars",       str.tostring(bar_index + 1))
+    dashRow(2, "Session",    activeSes)
+    dashRow(3, "PDH / PDL",  px(pdh) + " / " + px(pdl))
+    dashRow(4, "PWH / PWL",  px(pwh) + " / " + px(pwl))
+    dashRow(5, "PD bias",    na(eq) ? "—" : close > eq ? "Premium" : close < eq ? "Discount" : "EQ")
 
-// ═════════════════════════════════════════════════════════════════════════════
-// Alerts
-// ═════════════════════════════════════════════════════════════════════════════
-alertcondition(newBullFVG, "Bullish FVG",   "Bullish FVG formed on {{ticker}} {{interval}}")
-alertcondition(newBearFVG, "Bearish FVG",   "Bearish FVG formed on {{ticker}} {{interval}}")
-alertcondition(newIFVG,    "IFVG",          "FVG inverted (IFVG) on {{ticker}} {{interval}}")
-alertcondition(bullCISD,   "Bullish CISD",  "Bullish CISD on {{ticker}} {{interval}}")
-alertcondition(bearCISD,   "Bearish CISD",  "Bearish CISD on {{ticker}} {{interval}}")
-alertcondition(smtBearSig, "Bearish SMT",   "Bearish SMT divergence on {{ticker}} {{interval}}")
-alertcondition(smtBullSig, "Bullish SMT",   "Bullish SMT divergence on {{ticker}} {{interval}}")
